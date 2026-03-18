@@ -68,9 +68,9 @@ async function verifyPayment(
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: agentId } = params;
+  const { id: agentId } = await params;
   const startTime = Date.now();
 
   try {
