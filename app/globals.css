@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Font definitions with system fallbacks */
+:root {
+  --font-syne: 'Syne', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+}
+
+body {
+  background-color: #050508;
+  color: #ffffff;
+  font-family: var(--font-syne);
+}
+
+.font-syne {
+  font-family: var(--font-syne);
+}
+
+.font-mono {
+  font-family: var(--font-mono) !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0a0a10;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 255, 229, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 255, 229, 0.4);
+}
+
+/* Grid background texture */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(0, 255, 229, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 229, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+}
