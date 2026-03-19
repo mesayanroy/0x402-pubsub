@@ -1,0 +1,25 @@
+[package]
+name        = "relayer"
+description = "Stellar transaction relayer with fee-bump and sequence management"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+
+[[bin]]
+name = "relayer"
+path = "src/main.rs"
+
+[dependencies]
+common       = { workspace = true }
+tokio        = { workspace = true }
+reqwest      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+tracing      = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow       = { workspace = true }
+thiserror    = { workspace = true }
+dotenvy      = { workspace = true }
+rust_decimal = { workspace = true }
+chrono       = { workspace = true }

@@ -1,0 +1,76 @@
+[workspace]
+members = [
+    "common",
+    "mev_bot",
+    "arbitrage_tracker",
+    "mempool_monitor",
+    "trading_bot",
+    "relayer",
+    "liquidity_slippage_tracker",
+]
+resolver = "2"
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+authors      = ["Xylem AgentForge SDK"]
+license      = "MIT"
+repository   = "https://github.com/mesayanroy/0x402-pubsub"
+description  = "Professional Rust agent templates for the Xylem / AgentForge platform"
+
+# ── Shared release profile — optimised for binary size + speed ───────────────
+[profile.release]
+opt-level       = 3
+lto             = "fat"
+codegen-units   = 1
+panic           = "abort"
+strip           = "symbols"
+overflow-checks = false   # removed in release; add back if you need them
+
+# ── Debug builds still produce usable backtraces ─────────────────────────────
+[profile.dev]
+opt-level       = 1
+debug           = true
+overflow-checks = true
+
+# ── Shared dependency versions (agents reference these with workspace = true) ─
+[workspace.dependencies]
+# ── async runtime ──────────────────────────────────────────────────────────
+tokio         = { version = "1",    features = ["full"] }
+tokio-stream  = { version = "0.1",  features = ["net"] }
+futures-util  = "0.3"
+
+# ── HTTP / SSE ──────────────────────────────────────────────────────────────
+reqwest = { version = "0.12", default-features = false,
+            features = ["json", "stream", "rustls-tls"] }
+
+# ── Serialisation ───────────────────────────────────────────────────────────
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+
+# ── Cryptography ────────────────────────────────────────────────────────────
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha2          = "0.10"
+rand          = "0.8"
+base64        = "0.22"
+crc           = "3"
+
+# ── Numbers ─────────────────────────────────────────────────────────────────
+rust_decimal  = { version = "1", features = ["serde-float"] }
+
+# ── Time ────────────────────────────────────────────────────────────────────
+chrono = { version = "0.4", features = ["serde"] }
+
+# ── Logging ─────────────────────────────────────────────────────────────────
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# ── Error handling ──────────────────────────────────────────────────────────
+anyhow    = "1"
+thiserror = "1"
+
+# ── Configuration ───────────────────────────────────────────────────────────
+dotenvy = "0.15"
+
+# ── Internal common crate ───────────────────────────────────────────────────
+common = { path = "common" }

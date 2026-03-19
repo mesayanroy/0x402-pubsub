@@ -1,0 +1,26 @@
+[package]
+name        = "common"
+description = "Shared Stellar wallet, Horizon client, and transaction utilities"
+version.workspace    = true
+edition.workspace    = true
+authors.workspace    = true
+license.workspace    = true
+
+[dependencies]
+tokio        = { workspace = true }
+reqwest      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2         = { workspace = true }
+rand         = { workspace = true }
+base64       = { workspace = true }
+crc          = { workspace = true }
+rust_decimal = { workspace = true }
+chrono       = { workspace = true }
+tracing      = { workspace = true }
+anyhow       = { workspace = true }
+thiserror    = { workspace = true }
+dotenvy      = { workspace = true }
+tokio-stream = { workspace = true }
+futures-util = { workspace = true }
