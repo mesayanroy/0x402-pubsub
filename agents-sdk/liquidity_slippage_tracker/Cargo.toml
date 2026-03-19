@@ -1,0 +1,26 @@
+[package]
+name        = "liquidity_slippage_tracker"
+description = "Stellar DEX liquidity depth and price impact (slippage) monitor"
+version.workspace   = true
+edition.workspace   = true
+authors.workspace   = true
+license.workspace   = true
+
+[[bin]]
+name = "liquidity_slippage_tracker"
+path = "src/main.rs"
+
+[dependencies]
+common       = { workspace = true }
+tokio        = { workspace = true }
+reqwest      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+tracing      = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow       = { workspace = true }
+thiserror    = { workspace = true }
+dotenvy      = { workspace = true }
+rust_decimal = { workspace = true }
+chrono       = { workspace = true }
+futures-util  = { workspace = true }
