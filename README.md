@@ -1,4 +1,4 @@
-# Xylem - pubsub architecture
+# Xylem - 0x402/pubsub architect
 
 **Xylem** is a Web3-native AI agent marketplace and builder platform on the Stellar blockchain.
 
