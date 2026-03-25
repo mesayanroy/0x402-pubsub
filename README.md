@@ -38,7 +38,7 @@ Run `supabase-schema.sql` in your Supabase SQL editor.
 ### 4. Run the development server
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
