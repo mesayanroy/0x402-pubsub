@@ -91,11 +91,20 @@ export async function verifyPaymentTransaction(
   txHash: string,
   expectedDestination: string,
   expectedAmountXlm: number,
-  expectedMemo: string
+  expectedMemo: string,
+  expectedSourceAccount?: string
 ): Promise<{ valid: boolean; error?: string }> {
   try {
     const tx = await server.transactions().transaction(txHash).call();
     if (!tx) return { valid: false, error: 'Transaction not found' };
+
+    if (expectedSourceAccount && tx.source_account !== expectedSourceAccount) {
+      return {
+        valid: false,
+        error: `Source account mismatch. Expected ${expectedSourceAccount}, got ${tx.source_account}`,
+      };
+    }
+
     // Memo check: the expected value may be a prefix of the actual memo
     // (e.g. "agent:<id>" matches "agent:<id>:req:<nonce>")
     if (expectedMemo && tx.memo && !tx.memo.startsWith(expectedMemo)) {

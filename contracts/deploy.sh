@@ -7,18 +7,13 @@ set -e
 
 echo "🚀 Building AgentRegistry contract..."
 cd contracts/agent_registry
-stellar contract build
+stellar contract build --optimize
 
-WASM_FILE="target/wasm32-unknown-unknown/release/agent_registry.wasm"
-
-echo "📦 Optimizing WASM..."
-stellar contract optimize --wasm "$WASM_FILE"
-
-OPTIMIZED_WASM="target/wasm32-unknown-unknown/release/agent_registry.optimized.wasm"
+WASM_FILE="target/wasm32v1-none/release/agent_registry.wasm"
 
 echo "⬆️  Deploying to Stellar Testnet..."
 CONTRACT_ID=$(stellar contract deploy \
-  --wasm "$OPTIMIZED_WASM" \
+  --wasm "$WASM_FILE" \
   --source alice \
   --network testnet)
 

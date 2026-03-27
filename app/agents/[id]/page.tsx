@@ -34,7 +34,11 @@ export default function AgentDetailPage() {
   const [output, setOutput] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [paymentModal, setPaymentModal] = useState(false);
-  const [requestNonce] = useState(() => Math.random().toString(36).slice(2, 10));
+  const [paymentChallenge, setPaymentChallenge] = useState<{
+    memo: string;
+    address: string;
+    amountXlm: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,6 +73,13 @@ export default function AgentDetailPage() {
       });
       const data = await res.json();
       if (res.status === 402) {
+        if (data?.payment_details?.memo && data?.payment_details?.address) {
+          setPaymentChallenge({
+            memo: data.payment_details.memo,
+            address: data.payment_details.address,
+            amountXlm: Number(data.payment_details.amount_xlm ?? agent.price_xlm),
+          });
+        }
         setPaymentModal(true);
         return;
       }
@@ -189,9 +200,9 @@ X-Payment-Wallet: {your_G_address}
         onClose={() => setPaymentModal(false)}
         agentId={agent.id}
         agentName={agent.name}
-        priceXlm={agent.price_xlm}
-        ownerAddress={agent.owner_wallet}
-        requestNonce={requestNonce}
+        priceXlm={paymentChallenge?.amountXlm ?? agent.price_xlm}
+        ownerAddress={paymentChallenge?.address ?? agent.owner_wallet}
+        paymentMemo={paymentChallenge?.memo ?? `agent:${agent.id}`}
         onPaymentSuccess={(txHash) => {
           setPaymentModal(false);
           runAgent(txHash);

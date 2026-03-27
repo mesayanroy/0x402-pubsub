@@ -1,30 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
+import Ably from 'ably';
+import { getDemoAgentById, incrementDemoAgentStats } from '@/lib/demo-agents';
+import type { MarketplaceActivityEvent } from '@/types/events';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-// Mock agent data for demo (used when Supabase is not configured)
-const DEMO_AGENTS: Record<string, {
-  id: string;
-  owner_wallet: string;
-  name: string;
-  model: string;
-  system_prompt: string;
-  price_xlm: number;
-  is_active: boolean;
-}> = {
-  '1': {
-    id: '1',
-    owner_wallet: 'GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234XYZ1',
-    name: 'DeFi Analyst',
-    model: 'openai-gpt4o-mini',
-    system_prompt: 'You are a DeFi analyst. Provide concise, insightful analysis.',
-    price_xlm: 0.05,
-    is_active: true,
-  },
-};
 
 async function getAgent(agentId: string) {
   if (supabaseUrl && supabaseServiceKey) {
@@ -36,7 +18,7 @@ async function getAgent(agentId: string) {
       .single();
     return data;
   }
-  return DEMO_AGENTS[agentId] || null;
+  return getDemoAgentById(agentId);
 }
 
 async function runAgentModel(model: string, systemPrompt: string, userInput: string): Promise<string> {
@@ -55,14 +37,34 @@ async function verifyPayment(
   txHash: string,
   ownerWallet: string,
   priceXlm: number,
-  agentId: string
+  agentId: string,
+  callerWallet?: string
 ): Promise<boolean> {
   try {
     const { verifyPaymentTransaction } = await import('@/lib/stellar');
-    const result = await verifyPaymentTransaction(txHash, ownerWallet, priceXlm, `agent:${agentId}`);
+    const expectedMemoPrefix = `agent:${agentId}`.slice(0, 28);
+    const result = await verifyPaymentTransaction(
+      txHash,
+      ownerWallet,
+      priceXlm,
+      expectedMemoPrefix,
+      callerWallet
+    );
     return result.valid;
   } catch {
     return false;
+  }
+}
+
+async function publishMarketplaceActivity(activity: MarketplaceActivityEvent): Promise<void> {
+  const key = process.env.ABLY_API_KEY;
+  if (!key) return;
+
+  try {
+    const ably = new Ably.Rest({ key });
+    await ably.channels.get('marketplace').publish(activity.eventType, activity);
+  } catch (err) {
+    console.warn('[run] Unable to publish realtime activity:', err);
   }
 }
 
@@ -124,12 +126,30 @@ export async function POST(
 
     const requestId = uuidv4();
 
-    // If a payment hash is provided, hand off to the async PubSub pipeline and
-    // return 202 Accepted so the caller knows to listen for the result via Ably.
     if (paymentTxHash && agent.price_xlm > 0) {
+      if (!callerWallet) {
+        return NextResponse.json(
+          { error: 'Missing X-Payment-Wallet header for paid request' },
+          { status: 400 }
+        );
+      }
+
+      // Verify paid request inline so API callers get immediate completion even
+      // when background consumers are not running.
+      const paymentVerified = await verifyPayment(
+        paymentTxHash,
+        agent.owner_wallet,
+        agent.price_xlm,
+        agentId,
+        callerWallet
+      );
+      if (!paymentVerified) {
+        return NextResponse.json({ error: 'Payment verification failed' }, { status: 402 });
+      }
+
+      // Best-effort fan-out to Kafka for analytics/consumers.
       try {
         const { publish, TOPICS } = await import('@/lib/kafka');
-
         await publish(TOPICS.PAYMENT_PENDING, {
           requestId,
           agentId,
@@ -137,28 +157,12 @@ export async function POST(
           callerWallet,
           ownerWallet: agent.owner_wallet,
           priceXlm: agent.price_xlm,
-          memo: `agent:${agentId}`,
+          memo: `agent:${agentId}`.slice(0, 28),
           input,
           createdAt: new Date().toISOString(),
         });
-
-        return NextResponse.json(
-          {
-            request_id: requestId,
-            status: 'pending',
-            message: 'Payment received. Subscribe to Ably channel "marketplace" for the result.',
-          },
-          { status: 202 }
-        );
-      } catch (kafkaErr) {
-        // Kafka not configured – fall through to synchronous execution
-        console.warn('[run] Kafka unavailable, falling back to synchronous execution:', kafkaErr);
-      }
-
-      // Synchronous fallback: verify and run inline
-      const paymentVerified = await verifyPayment(paymentTxHash, agent.owner_wallet, agent.price_xlm, agentId);
-      if (!paymentVerified) {
-        return NextResponse.json({ error: 'Payment verification failed' }, { status: 402 });
+      } catch {
+        // non-blocking
       }
     }
 
@@ -194,6 +198,42 @@ export async function POST(
           updated_at: new Date().toISOString(),
         })
         .eq('id', agentId);
+    } else {
+      incrementDemoAgentStats(agentId, {
+        paid: Boolean(paymentTxHash),
+        amountXlm: agent.price_xlm,
+      });
+    }
+
+    const activity: MarketplaceActivityEvent = {
+      eventType: 'agent_run',
+      agentId,
+      agentName: agent.name,
+      callerWallet: callerWallet || undefined,
+      ownerWallet: agent.owner_wallet,
+      priceXlm: paymentTxHash ? agent.price_xlm : 0,
+      timestamp: new Date().toISOString(),
+    };
+
+    await publishMarketplaceActivity(activity);
+
+    try {
+      const { publish, TOPICS } = await import('@/lib/kafka');
+      await publish(TOPICS.AGENT_COMPLETED, {
+        requestId,
+        agentId,
+        model: agent.model,
+        callerWallet: callerWallet || '',
+        ownerWallet: agent.owner_wallet,
+        priceXlm: paymentTxHash ? agent.price_xlm : 0,
+        input,
+        output,
+        latencyMs,
+        txHash: paymentTxHash || '',
+        completedAt: new Date().toISOString(),
+      });
+    } catch {
+      // non-blocking
     }
 
     return NextResponse.json({

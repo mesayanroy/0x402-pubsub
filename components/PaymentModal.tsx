@@ -10,7 +10,7 @@ interface PaymentModalProps {
   agentName: string;
   priceXlm: number;
   ownerAddress: string;
-  requestNonce: string;
+  paymentMemo: string;
   onPaymentSuccess: (txHash: string) => void;
 }
 
@@ -21,7 +21,7 @@ export default function PaymentModal({
   agentName,
   priceXlm,
   ownerAddress,
-  requestNonce,
+  paymentMemo,
   onPaymentSuccess,
 }: PaymentModalProps) {
   const [paying, setPaying] = useState(false);
@@ -43,7 +43,7 @@ export default function PaymentModal({
       const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
       const senderAccount = await horizonServer.loadAccount(senderKey);
 
-      const memo = `agent:${agentId}:req:${requestNonce}`;
+      const memo = paymentMemo || `agent:${agentId}`;
       const txBuilder = new StellarSdk.TransactionBuilder(senderAccount, {
         fee: StellarSdk.BASE_FEE,
         networkPassphrase,
@@ -109,7 +109,7 @@ export default function PaymentModal({
               <div className="flex justify-between">
                 <span className="text-gray-500">Memo</span>
                 <span className="text-gray-300 text-xs truncate max-w-[200px]">
-                  agent:{agentId.slice(0, 8)}:req:{requestNonce}
+                  {paymentMemo}
                 </span>
               </div>
             </div>

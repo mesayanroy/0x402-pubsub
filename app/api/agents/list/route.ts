@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { listDemoAgents } from '@/lib/demo-agents';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -13,7 +14,9 @@ export async function GET(req: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
 
     if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ agents: [] });
+      return NextResponse.json({
+        agents: listDemoAgents({ owner: owner || undefined, model: model || undefined, tag: tag || undefined, limit }),
+      });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);

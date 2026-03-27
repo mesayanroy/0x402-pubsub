@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from '@supabase/supabase-js';
+import { upsertDemoAgent } from '@/lib/demo-agents';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -76,6 +77,21 @@ export async function POST(req: NextRequest) {
         console.error('Supabase error:', agentError);
         // Return success with generated data even if DB fails in demo mode
       }
+    } else {
+      upsertDemoAgent({
+        id: agentId,
+        owner_wallet,
+        name,
+        description,
+        tags: tags || [],
+        model,
+        system_prompt,
+        tools: tools || [],
+        price_xlm: parseFloat(price_xlm) || 0.01,
+        visibility: visibility || 'public',
+        api_endpoint: apiEndpoint,
+        api_key: apiKey,
+      });
     }
 
     return NextResponse.json({
