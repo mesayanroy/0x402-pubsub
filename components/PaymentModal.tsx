@@ -14,6 +14,18 @@ interface PaymentModalProps {
   onPaymentSuccess: (txHash: string) => void;
 }
 
+type PaymentStep = 'idle' | 'checking_wallet' | 'building_tx' | 'signing' | 'submitting' | 'done' | 'error';
+
+const STEP_LABELS: Record<PaymentStep, string> = {
+  idle: 'Sign & Pay',
+  checking_wallet: 'Checking wallet...',
+  building_tx: 'Building transaction...',
+  signing: 'Sign in Freighter...',
+  submitting: 'Submitting to Stellar...',
+  done: 'Done!',
+  error: 'Retry',
+};
+
 export default function PaymentModal({
   isOpen,
   onClose,
@@ -24,18 +36,33 @@ export default function PaymentModal({
   paymentMemo,
   onPaymentSuccess,
 }: PaymentModalProps) {
-  const [paying, setPaying] = useState(false);
+  const [step, setStep] = useState<PaymentStep>('idle');
   const [error, setError] = useState<string | null>(null);
 
+  const paying = step !== 'idle' && step !== 'done' && step !== 'error';
+
   const handlePay = async () => {
-    setPaying(true);
+    setStep('checking_wallet');
     setError(null);
     try {
       const StellarSdk = await import('stellar-sdk');
       const freighter = await import('@stellar/freighter-api');
 
+      // Check Freighter is installed and connected
+      const connectionResult = await freighter.isConnected();
+      if (!connectionResult.isConnected) {
+        throw new Error(
+          'Freighter wallet is not installed. Please install the Freighter browser extension at https://www.freighter.app and try again.'
+        );
+      }
+
+      // Request access if not already granted
+      await freighter.requestAccess();
+
       const { address: senderKey, error: addrError } = await freighter.getAddress();
-      if (addrError || !senderKey) throw new Error('Could not get wallet address');
+      if (addrError || !senderKey) throw new Error('Could not get wallet address. Please ensure Freighter is unlocked and you have granted permission.');
+
+      setStep('building_tx');
 
       const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org';
       const networkPassphrase = StellarSdk.Networks.TESTNET;
@@ -59,17 +86,22 @@ export default function PaymentModal({
         .setTimeout(30)
         .build();
 
+      setStep('signing');
+
       const xdr = txBuilder.toXDR();
       const signedResult = await freighter.signTransaction(xdr, { networkPassphrase });
       if (signedResult.error) throw new Error(String(signedResult.error));
       const signedXdr = signedResult.signedTxXdr;
       const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+
+      setStep('submitting');
+
       const result = await horizonServer.submitTransaction(signedTx);
+      setStep('done');
       onPaymentSuccess(result.hash);
     } catch (err) {
       setError(String(err));
-    } finally {
-      setPaying(false);
+      setStep('error');
     }
   };
 
@@ -114,6 +146,14 @@ export default function PaymentModal({
               </div>
             </div>
 
+            {/* Step progress */}
+            {paying && (
+              <div className="mb-4 p-3 rounded bg-[rgba(0,255,229,0.06)] border border-[rgba(0,255,229,0.2)] text-[#00FFE5] text-xs font-mono flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#00FFE5] animate-pulse shrink-0" />
+                {STEP_LABELS[step]}
+              </div>
+            )}
+
             {error && (
               <div className="mb-4 p-3 rounded bg-[rgba(255,69,69,0.1)] border border-red-900 text-red-400 text-xs font-mono">
                 {error}
@@ -123,7 +163,8 @@ export default function PaymentModal({
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 py-2.5 text-sm font-mono border border-[rgba(255,255,255,0.1)] text-gray-400 rounded-lg hover:text-white transition-colors"
+                disabled={paying}
+                className="flex-1 py-2.5 text-sm font-mono border border-[rgba(255,255,255,0.1)] text-gray-400 rounded-lg hover:text-white transition-colors disabled:opacity-40"
               >
                 Cancel
               </button>
@@ -132,7 +173,7 @@ export default function PaymentModal({
                 disabled={paying}
                 className="flex-1 py-2.5 text-sm font-mono bg-[#00FFE5] text-black rounded-lg font-bold hover:bg-[#00e6ce] transition-colors disabled:opacity-50"
               >
-                {paying ? 'Signing...' : 'Sign & Pay'}
+                {STEP_LABELS[step]}
               </button>
             </div>
           </motion.div>
