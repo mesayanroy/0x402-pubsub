@@ -59,5 +59,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to fetch requests' }, { status: 500 });
   }
 
-  return NextResponse.json({ requests: requests || [] });
+  const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet';
+  const withExplorer = (requests || []).map((row: {
+    payment_tx_hash?: string | null;
+    tx_explorer_url?: string | null;
+    [key: string]: unknown;
+  }) => ({
+    ...row,
+    tx_explorer_url:
+      row.tx_explorer_url ||
+      (row.payment_tx_hash
+        ? `https://stellar.expert/explorer/${network}/tx/${row.payment_tx_hash}`
+        : null),
+  }));
+
+  return NextResponse.json({ requests: withExplorer });
 }

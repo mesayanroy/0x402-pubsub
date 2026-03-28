@@ -3,47 +3,115 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { Agent } from '@/types';
 
-const MOCK_MY_AGENTS: Agent[] = [
-  {
-    id: '1',
-    owner_wallet: 'GABC1234',
-    name: 'DeFi Analyst',
-    description: 'Analyzes DeFi protocols',
-    tags: ['web3', 'finance'],
-    model: 'openai-gpt4o-mini',
-    system_prompt: '',
-    tools: [],
-    price_xlm: 0.05,
-    visibility: 'public',
-    total_requests: 1420,
-    total_earned_xlm: 71.0,
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+type AnalyticsResponse = {
+  byModel: Array<{ model: string; requests: number; paidRequests: number; earnedXlm: number; avgLatencyMs: number }>;
+  requestRate: Array<{ ts: string; total: number; models: Record<string, number> }>;
+  earnings: Array<{ date: string; amount: number }>;
+  invoices: Array<{
+    invoiceId: string;
+    requestId: string;
+    txHash: string;
+    txExplorerUrl: string;
+    amountXlm: number;
+    model: string;
+    agentName: string;
+    callerWallet: string | null;
+    createdAt: string;
+  }>;
+  totals: {
+    requests: number;
+    paidRequests: number;
+    totalEarnedXlm: number;
+    avgLatencyMs: number;
+  };
+  generatedAt: string;
+};
+
+const EMPTY_ANALYTICS: AnalyticsResponse = {
+  byModel: [],
+  requestRate: [],
+  earnings: [],
+  invoices: [],
+  totals: {
+    requests: 0,
+    paidRequests: 0,
+    totalEarnedXlm: 0,
+    avgLatencyMs: 0,
   },
-];
+  generatedAt: new Date().toISOString(),
+};
+
+function shortHash(hash: string): string {
+  if (!hash) return '';
+  return `${hash.slice(0, 10)}...${hash.slice(-10)}`;
+}
+
+function shortWallet(wallet: string | null): string {
+  if (!wallet) return 'anonymous';
+  return `${wallet.slice(0, 6)}...${wallet.slice(-6)}`;
+}
+
+function modelName(model: string): string {
+  if (model === 'openai-gpt4o-mini') return 'GPT-4o Mini';
+  if (model === 'anthropic-claude-haiku') return 'Claude Haiku';
+  return model;
+}
 
 export default function DashboardPage() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [myAgents, setMyAgents] = useState<Agent[]>(MOCK_MY_AGENTS);
-  const [totalEarned, setTotalEarned] = useState(71.0);
+  const [myAgents, setMyAgents] = useState<Agent[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
+    if (!addr) return;
     setWalletAddress(addr);
-    if (addr) {
-      fetch(`/api/agents/list?owner=${addr}`)
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.agents?.length) {
-            setMyAgents(d.agents);
-            setTotalEarned(d.agents.reduce((sum: number, a: Agent) => sum + a.total_earned_xlm, 0));
-          }
-        })
-        .catch(() => {});
-    }
+
+    const fetchAll = async () => {
+      setLoading(true);
+      try {
+        const [agentsRes, analyticsRes] = await Promise.all([
+          fetch(`/api/agents/list?owner=${encodeURIComponent(addr)}`),
+          fetch(`/api/dashboard/analytics?owner=${encodeURIComponent(addr)}&hours=24`),
+        ]);
+
+        const agentsData = agentsRes.ok ? await agentsRes.json() : { agents: [] };
+        const analyticsData = analyticsRes.ok ? await analyticsRes.json() : EMPTY_ANALYTICS;
+
+        setMyAgents(agentsData.agents || []);
+        setAnalytics({
+          ...EMPTY_ANALYTICS,
+          ...(analyticsData || {}),
+          totals: {
+            ...EMPTY_ANALYTICS.totals,
+            ...(analyticsData?.totals || {}),
+          },
+        });
+      } catch {
+        setMyAgents([]);
+        setAnalytics(EMPTY_ANALYTICS);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void fetchAll();
+    const interval = setInterval(fetchAll, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   if (!walletAddress) {
@@ -57,10 +125,18 @@ export default function DashboardPage() {
     );
   }
 
+  if (loading && !analytics) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="font-mono text-sm text-gray-400">Loading real-time dashboard...</p>
+      </div>
+    );
+  }
+
   const statCards = [
     { label: 'My Agents', value: myAgents.length, unit: '' },
-    { label: 'Total Earned', value: totalEarned.toFixed(2), unit: 'XLM' },
-    { label: 'Total Requests', value: myAgents.reduce((s, a) => s + a.total_requests, 0).toLocaleString(), unit: '' },
+    { label: 'Total Earned', value: (analytics?.totals?.totalEarnedXlm ?? 0).toFixed(2), unit: 'XLM' },
+    { label: 'Total Requests', value: (analytics?.totals?.requests ?? 0).toLocaleString(), unit: '' },
     { label: 'Active Agents', value: myAgents.filter((a) => a.is_active).length, unit: '' },
   ];
 
@@ -89,6 +165,132 @@ export default function DashboardPage() {
                 <div className="font-mono text-xs text-gray-500 mt-1">{stat.label}</div>
               </div>
             ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)]">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-syne text-lg font-bold text-white">Request Rate by Minute</h3>
+                <span className="font-mono text-[10px] text-gray-500">auto-refresh 5s</span>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={analytics?.requestRate || []}>
+                    <defs>
+                      <linearGradient id="reqFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#00FFE5" stopOpacity={0.35} />
+                        <stop offset="95%" stopColor="#00FFE5" stopOpacity={0.03} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="ts"
+                      tick={{ fill: '#8a8a93', fontSize: 10 }}
+                      tickFormatter={(value: string) => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                    />
+                    <YAxis tick={{ fill: '#8a8a93', fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip
+                      contentStyle={{
+                        background: '#0a0a10',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 10,
+                        color: '#fff',
+                      }}
+                    />
+                    <Area type="monotone" dataKey="total" stroke="#00FFE5" fill="url(#reqFill)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)]">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-syne text-lg font-bold text-white">Billing by Model</h3>
+                <span className="font-mono text-[10px] text-gray-500">live from Supabase</span>
+              </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={analytics?.byModel || []}>
+                    <CartesianGrid stroke="rgba(255,255,255,0.08)" strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="model"
+                      tick={{ fill: '#8a8a93', fontSize: 10 }}
+                      tickFormatter={(value: string) => modelName(value)}
+                    />
+                    <YAxis tick={{ fill: '#8a8a93', fontSize: 10 }} />
+                    <Tooltip
+                      formatter={(value: unknown) => {
+                        const raw = Array.isArray(value) ? value[0] : value;
+                        const n = typeof raw === 'number' ? raw : Number(raw || 0);
+                        return `${n.toFixed(2)} XLM`;
+                      }}
+                      contentStyle={{
+                        background: '#0a0a10',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 10,
+                        color: '#fff',
+                      }}
+                    />
+                    <Bar dataKey="earnedXlm" fill="#FFB800" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)]">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-syne text-lg font-bold text-white">Invoice Stream (0x402)</h3>
+              <span className="font-mono text-xs text-gray-500">
+                avg latency: {analytics?.totals?.avgLatencyMs ?? 0} ms
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px]">
+                <thead>
+                  <tr className="text-left border-b border-white/[0.08]">
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Invoice</th>
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Agent</th>
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Model</th>
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Amount</th>
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Signature</th>
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Caller</th>
+                    <th className="py-2 pr-3 font-mono text-[11px] text-gray-500">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(analytics?.invoices || []).map((row) => (
+                    <tr key={row.invoiceId} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="py-2 pr-3 font-mono text-xs text-white/80">{row.invoiceId}</td>
+                      <td className="py-2 pr-3 font-mono text-xs text-white/80">{row.agentName}</td>
+                      <td className="py-2 pr-3 font-mono text-xs text-[#00FFE5]">{modelName(row.model)}</td>
+                      <td className="py-2 pr-3 font-mono text-xs text-[#4ade80]">{row.amountXlm.toFixed(4)} XLM</td>
+                      <td className="py-2 pr-3 font-mono text-xs">
+                        <a
+                          href={row.txExplorerUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[#FFB800] hover:underline"
+                        >
+                          {shortHash(row.txHash)}
+                        </a>
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-xs text-white/60">{shortWallet(row.callerWallet)}</td>
+                      <td className="py-2 pr-3 font-mono text-xs text-white/50">
+                        {new Date(row.createdAt).toLocaleTimeString([], { hour12: false })}
+                      </td>
+                    </tr>
+                  ))}
+                  {(analytics?.invoices || []).length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-6 text-center font-mono text-xs text-white/40">
+                        No paid requests yet. Sign and run a paid agent call to populate invoices.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div>

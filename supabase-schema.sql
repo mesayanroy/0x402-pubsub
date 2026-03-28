@@ -44,10 +44,25 @@ CREATE TABLE agent_requests (
   input_payload JSONB,
   output_response JSONB,
   payment_tx_hash TEXT,
+  tx_explorer_url TEXT,
   payment_amount_xlm NUMERIC(10,4),
   protocol TEXT DEFAULT '0x402',
   status TEXT DEFAULT 'success' CHECK (status IN ('success', 'failed', 'pending')),
   latency_ms INT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Invoice Ledger (one row per paid request)
+CREATE TABLE invoices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id UUID UNIQUE REFERENCES agent_requests(id),
+  agent_id UUID NOT NULL REFERENCES agents(id),
+  owner_wallet TEXT NOT NULL,
+  caller_wallet TEXT,
+  amount_xlm NUMERIC(12,4) NOT NULL,
+  tx_hash TEXT UNIQUE NOT NULL,
+  tx_explorer_url TEXT NOT NULL,
+  status TEXT DEFAULT 'paid' CHECK (status IN ('paid', 'refunded', 'failed')),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -77,6 +92,8 @@ CREATE INDEX idx_agents_owner ON agents(owner_wallet);
 CREATE INDEX idx_agents_visibility ON agents(visibility) WHERE is_active = true;
 CREATE INDEX idx_agent_requests_agent ON agent_requests(agent_id);
 CREATE INDEX idx_agent_requests_created ON agent_requests(created_at DESC);
+CREATE INDEX idx_agent_requests_tx_hash ON agent_requests(payment_tx_hash);
+CREATE INDEX idx_invoices_owner_created ON invoices(owner_wallet, created_at DESC);
 CREATE INDEX idx_api_keys_hash ON api_keys(key_hash) WHERE is_active = true;
 
 -- Row Level Security (optional — enable for user-scoped access)

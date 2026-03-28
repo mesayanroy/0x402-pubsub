@@ -12,23 +12,42 @@ export async function GET(
   try {
     const { id } = await params;
 
-    if (supabaseUrl && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      const { data, error } = await supabase
-        .from('agents')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (!error && data) {
-        return NextResponse.json(data);
-      }
-      // Fall through to demo agents when not found in Supabase
+    if (!supabaseUrl || !supabaseServiceKey) {
+      const demo = getDemoAgentById(id);
+      if (!demo) return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+      return NextResponse.json({ ...demo, storage_mode: 'demo_fallback' });
     }
 
-    const demo = getDemoAgentById(id);
-    if (!demo) return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
-    return NextResponse.json(demo);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { data, error } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      const message = (error.message || '').toLowerCase();
+      if (
+        message.includes("could not find the table 'public.agents'")
+        || message.includes('relation "public.agents" does not exist')
+        || error.code === 'PGRST205'
+      ) {
+        const demo = getDemoAgentById(id);
+        if (!demo) return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+        return NextResponse.json({ ...demo, storage_mode: 'demo_fallback' });
+      }
+      if (error.code === 'PGRST116') {
+        return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+      }
+      console.error('Get agent query error:', error);
+      return NextResponse.json({ error: 'Failed to fetch agent from database' }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+    }
+
+    return NextResponse.json(data);
   } catch (err) {
     console.error('Get agent error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

@@ -9,25 +9,6 @@ import PaymentModal from '@/components/PaymentModal';
 import { truncateAddress } from '@/lib/stellar';
 import { useMarketplaceFeed } from '@/hooks/useMarketplaceFeed';
 
-const MOCK_AGENT: Agent = {
-  id: '1',
-  owner_wallet: 'GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234XYZ1',
-  name: 'DeFi Analyst',
-  description: 'Analyzes DeFi protocols, yields, and on-chain metrics in real time using live blockchain data.',
-  tags: ['web3', 'finance', 'defi'],
-  model: 'openai-gpt4o-mini',
-  system_prompt: 'You are a DeFi analyst...',
-  tools: ['on_chain_data', 'web_search'],
-  price_xlm: 0.05,
-  visibility: 'public',
-  api_endpoint: 'https://agentforge.dev/api/agents/1/run',
-  total_requests: 1420,
-  total_earned_xlm: 71.0,
-  is_active: true,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
 export default function AgentDetailPage() {
   const { id } = useParams();
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -60,12 +41,11 @@ export default function AgentDetailPage() {
           setAgent(data);
         } else if (res.status === 404) {
           setNotFound(true);
-          setAgent(MOCK_AGENT);
         } else {
-          setAgent(MOCK_AGENT);
+          setError('Failed to load agent details.');
         }
       } catch {
-        setAgent(MOCK_AGENT);
+        setError('Failed to load agent details.');
       } finally {
         setLoading(false);
       }

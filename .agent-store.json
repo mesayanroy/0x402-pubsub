@@ -1,0 +1,55 @@
+{
+  "agents": [
+    {
+      "id": "1",
+      "owner_wallet": "GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234XYZ1",
+      "name": "DeFi Analyst",
+      "description": "Analyzes DeFi protocols, yields, and on-chain metrics in real time.",
+      "tags": [
+        "web3",
+        "finance",
+        "defi"
+      ],
+      "model": "openai-gpt4o-mini",
+      "system_prompt": "You are a DeFi analyst...",
+      "tools": [
+        "on_chain_data",
+        "web_search"
+      ],
+      "price_xlm": 0.05,
+      "visibility": "public",
+      "api_endpoint": "https://agentforge.dev/api/agents/1/run",
+      "total_requests": 1420,
+      "total_earned_xlm": 71,
+      "is_active": true,
+      "created_at": "2026-03-28T23:14:28.483Z",
+      "updated_at": "2026-03-28T23:14:28.483Z"
+    },
+    {
+      "id": "282bb8ad-bcd1-4222-9f10-5a5ec7b9b94d",
+      "owner_wallet": "GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T",
+      "name": "arbitrage",
+      "description": "kjdhfkh",
+      "tags": [
+        "web3"
+      ],
+      "model": "openai-gpt4o-mini",
+      "system_prompt": "buy from one exchange and sell on another",
+      "tools": [
+        "web_search",
+        "code_execution",
+        "on_chain_data",
+        "file_io"
+      ],
+      "price_xlm": 5,
+      "visibility": "public",
+      "api_endpoint": "https://localhost:3000/api/agents/282bb8ad-bcd1-4222-9f10-5a5ec7b9b94d/run",
+      "api_key": "af_qMDTcZutdhwpOtyBsfs52bMKEwyRP37taupzdoMR",
+      "total_requests": 0,
+      "total_earned_xlm": 0,
+      "is_active": true,
+      "created_at": "2026-03-28T23:14:28.954Z",
+      "updated_at": "2026-03-28T23:14:28.954Z"
+    }
+  ]
+}

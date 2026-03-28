@@ -92,7 +92,10 @@ export default function AgentBuilder() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Deploy failed');
+      if (!res.ok) {
+        const extra = data.details ? ` (${data.details})` : '';
+        throw new Error(`${data.error || 'Deploy failed'}${extra}`);
+      }
 
       setDeployedAgent({ id: data.id, apiKey: data.api_key, endpoint: data.api_endpoint });
     } catch (err) {

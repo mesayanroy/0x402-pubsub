@@ -120,14 +120,17 @@ async function payXLM(
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function fetchAgents(apiBase: string): Promise<AgentRecord[]> {
-  const res = await fetch(`${apiBase}/api/agents/list`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
+  const res = await fetch(`${apiBase}/api/agents/list`, { method: 'GET' });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   const data = (await res.json()) as { agents?: AgentRecord[] };
   return data.agents ?? [];
+}
+
+async function submitSignedXdr(signedXdr: string): Promise<string> {
+  const server = new Horizon.Server(HORIZON_URL);
+  const tx = TransactionBuilder.fromXDR(signedXdr, NETWORK_PASSPHRASE);
+  const result = await server.submitTransaction(tx);
+  return result.hash;
 }
 
 async function runAgent(
@@ -214,10 +217,14 @@ agentsCmd
     '-s, --secret <key>',
     'Stellar secret key for payment signing (or set STELLAR_AGENT_SECRET env var)'
   )
+  .option(
+    '--signed-xdr <xdr>',
+    'Signed payment XDR (e.g. signed via Freighter) for submitting the 402 payment'
+  )
   .action(
     async (
       agentId: string,
-      opts: { input: string; secret?: string }
+      opts: { input: string; secret?: string; signedXdr?: string }
     ) => {
       const apiBase = program.opts().api as string;
       const secretKey = opts.secret || process.env.STELLAR_AGENT_SECRET;
@@ -245,11 +252,11 @@ agentsCmd
           chalk.yellow(`Payment required: ${pd.amount_xlm} XLM → ${truncate(pd.address)}`)
         );
 
-        if (!secretKey) {
+        if (!secretKey && !opts.signedXdr) {
           console.log('');
           console.log(
             chalk.red('  ✗ No Stellar secret key provided.') +
-              '\n    Pass --secret <KEY> or set STELLAR_AGENT_SECRET env var.'
+              '\n    Pass --secret <KEY>, set STELLAR_AGENT_SECRET, or pass --signed-xdr from Freighter.'
           );
           console.log('');
           console.log(chalk.gray('  Payment details:'));
@@ -259,16 +266,25 @@ agentsCmd
           process.exit(1);
         }
 
-        const keypair = Keypair.fromSecret(secretKey);
-        const walletAddress = keypair.publicKey();
+        let walletAddress = '';
+        if (secretKey) {
+          const keypair = Keypair.fromSecret(secretKey);
+          walletAddress = keypair.publicKey();
+        }
 
         spinner = ora(
-          `Building & signing Stellar payment from ${truncate(walletAddress)}…`
+          opts.signedXdr
+            ? 'Submitting Freighter-signed payment XDR…'
+            : `Building & signing Stellar payment from ${truncate(walletAddress)}…`
         ).start();
 
         let txHash: string;
         try {
-          txHash = await payXLM(secretKey, pd.address, pd.amount_xlm, pd.memo);
+          if (opts.signedXdr) {
+            txHash = await submitSignedXdr(opts.signedXdr);
+          } else {
+            txHash = await payXLM(secretKey as string, pd.address, pd.amount_xlm, pd.memo);
+          }
           spinner.succeed(
             chalk.green(`Payment submitted!  tx: ${truncate(txHash, 12)}`)
           );
@@ -276,6 +292,19 @@ agentsCmd
         } catch (err) {
           spinner.fail(`Payment failed: ${String(err)}`);
           process.exit(1);
+        }
+
+        if (!walletAddress) {
+          spinner = ora('Fetching tx source account for X-Payment-Wallet header…').start();
+          try {
+            const server = new Horizon.Server(HORIZON_URL);
+            const tx = await server.transactions().transaction(txHash).call();
+            walletAddress = tx.source_account;
+            spinner.succeed(`Source wallet resolved: ${truncate(walletAddress)}`);
+          } catch (err) {
+            spinner.fail(`Cannot infer wallet from tx ${truncate(txHash)}: ${String(err)}`);
+            process.exit(1);
+          }
         }
 
         // Retry with payment proof

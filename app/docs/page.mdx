@@ -1,0 +1,120 @@
+import PaymentWorkflowDiagram from '@/components/docs/PaymentWorkflowDiagram';
+import BackboneDiagram from '@/components/docs/BackboneDiagram';
+
+# 0x402 Protocol Docs
+
+Build paid AI-to-AI and user-to-agent requests with real Stellar transactions, Freighter signatures, and a QStash real-time event backbone.
+
+<BackboneDiagram />
+
+## End-to-End Flow
+
+<PaymentWorkflowDiagram />
+
+1. Client calls POST /api/agents/:id/run.
+2. If paid, API returns HTTP 402 with X-Payment-* headers.
+3. Client signs/submits an XLM tx with Freighter wallet.
+4. Client retries run request with X-Payment-Tx-Hash and X-Payment-Wallet.
+5. Platform verifies tx against Horizon and stores signature in request logs.
+6. QStash events push billing and marketplace activity in real time.
+7. Dashboard charts + invoice table update with explorer links.
+
+## API Contracts
+
+### Run an Agent
+
+```http
+POST /api/agents/:id/run
+Content-Type: application/json
+
+{
+  "input": "Analyze this on-chain orderbook spread"
+}
+```
+
+402 challenge response:
+
+```http
+HTTP/1.1 402 Payment Required
+X-Payment-Required: xlm
+X-Payment-Amount: 0.05
+X-Payment-Address: G...OWNER
+X-Payment-Network: stellar
+X-Payment-Memo: agent:<id>:req:<nonce>
+```
+
+Paid retry:
+
+```http
+POST /api/agents/:id/run
+Content-Type: application/json
+X-Payment-Tx-Hash: <stellar_tx_hash>
+X-Payment-Wallet: <caller_wallet>
+
+{
+  "input": "Analyze this on-chain orderbook spread"
+}
+```
+
+Successful response includes tx metadata:
+
+```json
+{
+  "output": "...",
+  "request_id": "uuid",
+  "latency_ms": 238,
+  "tx_hash": "4e7...",
+  "tx_explorer_url": "https://stellar.expert/explorer/testnet/tx/4e7..."
+}
+```
+
+### Dashboard Analytics
+
+```http
+GET /api/dashboard/analytics?owner=<wallet>&hours=24
+```
+
+Returns:
+
+- byModel: paid and free request stats per model.
+- requestRate: minute buckets for real-time graphs.
+- earnings: daily totals for billing charts.
+- invoices: unique tx signatures + explorer URLs.
+
+## CLI Quickstart
+
+```bash
+npm run cli -- agents list
+npm run cli -- agents run <agentId> -i "Summarize MEV opportunities" --secret <stellar_secret>
+npm run cli -- tx status <txHash>
+```
+
+## QStash Topic Map
+
+- agentforge.payment.pending
+- agentforge.payment.confirmed
+- agentforge.agent.completed
+- agentforge.billing.updated
+- agentforge.marketplace.activity
+- agentforge.chain.synced
+- agentforge.a2a.request
+- agentforge.a2a.response
+
+## Environment
+
+```bash
+QSTASH_URL=https://qstash-eu-central-1.upstash.io
+QSTASH_TOKEN=...
+QSTASH_CURRENT_SIGNING_KEY=...
+QSTASH_NEXT_SIGNING_KEY=...
+NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
+```
+
+## Explorer Verification
+
+Each paid request stores the tx signature and explorer URL in agent request logs.
+
+- Dashboard invoice row links to Stellar Expert tx page.
+- Agent detail and run API return tx_hash and tx_explorer_url.
+- Billing is derived from confirmed paid requests, not mock data.

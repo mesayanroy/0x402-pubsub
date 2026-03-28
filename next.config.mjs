@@ -1,5 +1,9 @@
+import createMDX from '@next/mdx';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  pageExtensions: ['ts', 'tsx', 'md', 'mdx'],
+
   // Prevent Next.js from bundling native Node.js modules (stellar-sdk uses
   // sodium-native which is a native addon). This keeps them as external
   // Node.js requires inside serverless functions instead of being inlined
@@ -23,4 +27,11 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+const withMDX = createMDX({
+  options: {
+    remarkPlugins: [],
+    rehypePlugins: [],
+  },
+});
+
+export default withMDX(nextConfig);

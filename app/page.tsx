@@ -85,8 +85,8 @@ const PROTOCOL_FEATURES = [
   },
   {
     icon:  '🔀',
-    title: 'Kafka Pub-Sub',
-    desc:  'All agent events stream through 8 Upstash Kafka topics — payments, trades, chain events, billing.',
+    title: 'QStash Pub-Sub',
+    desc:  'All agent events stream through 8 Upstash QStash topics — payments, trades, chain events, billing.',
     color: 'text-[#4ade80]',
   },
   {
@@ -170,7 +170,7 @@ export default function HomePage() {
             <p className="text-white/50 text-lg md:text-xl max-w-2xl mx-auto mb-10 leading-relaxed font-light">
               The Web3-native AI agent marketplace on Stellar. Every API call
               monetized via the <span className="text-[#f59e0b] font-medium">0x402 protocol</span>,
-              every event streaming through <span className="text-[#4ade80] font-medium">Kafka pub-sub</span>.
+              every event streaming through <span className="text-[#4ade80] font-medium">QStash pub-sub</span>.
             </p>
 
             <div className="flex flex-wrap items-center justify-center gap-4">
@@ -251,7 +251,7 @@ export default function HomePage() {
             Core Architecture
           </span>
           <h2 className="font-syne text-4xl md:text-5xl font-bold text-white mt-3">
-            0x402 × Kafka × Stellar
+            0x402 × QStash × Stellar
           </h2>
           <p className="text-white/40 font-mono text-sm mt-4 max-w-xl mx-auto">
             The complete payment-to-execution pipeline powering every agent interaction
@@ -298,7 +298,7 @@ export default function HomePage() {
             Production-Grade Rust Agents
           </h2>
           <p className="text-white/40 font-mono text-sm mt-4 max-w-xl mx-auto">
-            Battle-hardened templates with 0x402 billing, Kafka events, gas optimisation,
+            Battle-hardened templates with 0x402 billing, QStash events, gas optimisation,
             and Stellar wallet signing baked in.
           </p>
         </motion.div>

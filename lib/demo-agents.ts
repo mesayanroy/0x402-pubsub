@@ -1,4 +1,6 @@
 import type { Agent } from '@/types';
+import fs from 'node:fs';
+import path from 'node:path';
 
 type DemoAgentInput = {
   id: string;
@@ -16,6 +18,30 @@ type DemoAgentInput = {
 };
 
 const nowIso = () => new Date().toISOString();
+const STORE_PATH = path.join(process.cwd(), '.agent-store.json');
+
+function loadPersistedAgents(): Agent[] {
+  try {
+    if (!fs.existsSync(STORE_PATH)) return [];
+    const raw = fs.readFileSync(STORE_PATH, 'utf8');
+    if (!raw.trim()) return [];
+
+    const parsed = JSON.parse(raw) as { agents?: Agent[] };
+    return Array.isArray(parsed.agents) ? parsed.agents : [];
+  } catch (err) {
+    console.warn('[demo-agents] Failed to read persisted store:', err);
+    return [];
+  }
+}
+
+function persistAgents(map: Map<string, Agent>): void {
+  try {
+    const payload = JSON.stringify({ agents: Array.from(map.values()) }, null, 2);
+    fs.writeFileSync(STORE_PATH, payload, 'utf8');
+  } catch (err) {
+    console.warn('[demo-agents] Failed to persist store:', err);
+  }
+}
 
 const demoAgents = new Map<string, Agent>([
   [
@@ -40,6 +66,10 @@ const demoAgents = new Map<string, Agent>([
     },
   ],
 ]);
+
+for (const persisted of loadPersistedAgents()) {
+  demoAgents.set(persisted.id, persisted);
+}
 
 export function getDemoAgentById(id: string): Agent | null {
   return demoAgents.get(id) ?? null;
@@ -82,6 +112,7 @@ export function upsertDemoAgent(input: DemoAgentInput): Agent {
   };
 
   demoAgents.set(input.id, next);
+  persistAgents(demoAgents);
   return next;
 }
 
@@ -95,4 +126,5 @@ export function incrementDemoAgentStats(id: string, opts: { paid: boolean; amoun
   }
   found.updated_at = nowIso();
   demoAgents.set(id, found);
+  persistAgents(demoAgents);
 }

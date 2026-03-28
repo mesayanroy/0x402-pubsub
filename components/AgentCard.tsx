@@ -21,6 +21,10 @@ const modelLabel: Record<string, string> = {
 };
 
 export default function AgentCard({ agent, onFork }: AgentCardProps) {
+  const safeOwner = agent.owner_wallet || 'Unknown';
+  const totalRequests = Number(agent.total_requests ?? 0);
+  const priceXlm = Number(agent.price_xlm ?? 0);
+
   return (
     <motion.div
       whileHover={{ y: -4, boxShadow: '0 0 24px rgba(0,255,229,0.08)' }}
@@ -52,10 +56,10 @@ export default function AgentCard({ agent, onFork }: AgentCardProps) {
       )}
 
       <div className="flex items-center justify-between text-xs font-mono text-gray-500 border-t border-[rgba(255,255,255,0.05)] pt-3">
-        <span title={agent.owner_wallet}>{truncateAddress(agent.owner_wallet)}</span>
+        <span title={safeOwner}>{truncateAddress(safeOwner)}</span>
         <div className="flex items-center gap-3">
-          <span>{agent.total_requests.toLocaleString()} reqs</span>
-          <span className="text-[#FFB800]">{agent.price_xlm} XLM/req</span>
+          <span>{totalRequests.toLocaleString()} reqs</span>
+          <span className="text-[#FFB800]">{priceXlm} XLM/req</span>
         </div>
       </div>
 

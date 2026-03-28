@@ -5,77 +5,29 @@ import { motion } from 'framer-motion';
 import AgentCard from '@/components/AgentCard';
 import { Agent } from '@/types';
 
-const MOCK_AGENTS: Agent[] = [
-  {
-    id: '1',
-    owner_wallet: 'GABC...XYZ1',
-    name: 'DeFi Analyst',
-    description: 'Analyzes DeFi protocols, yields, and on-chain metrics in real time.',
-    tags: ['web3', 'finance', 'defi'],
-    model: 'openai-gpt4o-mini',
-    system_prompt: 'You are a DeFi analyst...',
-    tools: ['on_chain_data', 'web_search'],
-    price_xlm: 0.05,
-    visibility: 'public',
-    total_requests: 1420,
-    total_earned_xlm: 71.0,
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: '2',
-    owner_wallet: 'GDEF...XYZ2',
-    name: 'Code Review Bot',
-    description: 'Reviews pull requests, suggests improvements, and detects security issues.',
-    tags: ['dev', 'automation', 'code'],
-    model: 'anthropic-claude-haiku',
-    system_prompt: 'You are a senior code reviewer...',
-    tools: ['code_execution'],
-    price_xlm: 0.1,
-    visibility: 'public',
-    total_requests: 892,
-    total_earned_xlm: 89.2,
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-  {
-    id: '3',
-    owner_wallet: 'GHIJ...XYZ3',
-    name: 'Smart Contract Auditor',
-    description: 'Audits Soroban smart contracts for vulnerabilities and best practices.',
-    tags: ['web3', 'security', 'soroban'],
-    model: 'anthropic-claude-haiku',
-    system_prompt: 'You are a smart contract security auditor...',
-    tools: ['code_execution', 'on_chain_data'],
-    price_xlm: 0.25,
-    visibility: 'public',
-    total_requests: 234,
-    total_earned_xlm: 58.5,
-    is_active: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>(MOCK_AGENTS);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState<string>('all');
   const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAgents = async () => {
       setLoading(true);
+      setApiError(null);
       try {
         const res = await fetch('/api/agents/list');
+        const data = await res.json();
         if (res.ok) {
-          const data = await res.json();
-          if (data.agents?.length) setAgents(data.agents);
+          setAgents(Array.isArray(data.agents) ? data.agents : []);
+        } else {
+          setAgents([]);
+          setApiError(data.error || 'Failed to load agents');
         }
       } catch {
-        // use mock data
+        setAgents([]);
+        setApiError('Unable to reach agents API');
       } finally {
         setLoading(false);
       }
@@ -133,6 +85,11 @@ export default function AgentsPage() {
 
           {loading ? (
             <div className="text-center py-20 text-gray-500 font-mono">Loading agents...</div>
+          ) : apiError ? (
+            <div className="text-center py-20 font-mono">
+              <p className="text-red-400">{apiError}</p>
+              <p className="text-gray-500 text-sm mt-2">Check Supabase environment variables and database connectivity.</p>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-20 text-gray-500 font-mono">No agents found.</div>
           ) : (

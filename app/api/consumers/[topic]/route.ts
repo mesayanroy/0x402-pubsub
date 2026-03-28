@@ -143,13 +143,13 @@ async function handlePaymentConfirmed(event: PaymentConfirmedEvent): Promise<voi
 // ─── Billing aggregator ───────────────────────────────────────────────────────
 
 async function handleAgentCompleted(event: AgentCompletedEvent): Promise<void> {
-  const { agentId, ownerWallet, priceXlm } = event;
+  const { agentId, ownerWallet, priceXlm, txHash, model } = event;
   console.log(`[BillingAggregator] Updating earnings for agent ${agentId}`);
 
   const sb = getSupabase();
   const { data: agent, error } = await sb
     .from('agents')
-    .select('total_requests, total_earned_xlm')
+    .select('name, total_requests, total_earned_xlm')
     .eq('id', agentId)
     .single();
 
@@ -185,9 +185,14 @@ async function handleAgentCompleted(event: AgentCompletedEvent): Promise<void> {
   const activity: MarketplaceActivityEvent = {
     eventType: 'agent_run',
     agentId,
-    agentName: agentId,
+    agentName: agent?.name || agentId,
     ownerWallet,
     priceXlm,
+    txHash: txHash || undefined,
+    txExplorerUrl: txHash
+      ? `https://stellar.expert/explorer/${process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet'}/tx/${txHash}`
+      : undefined,
+    model: model || undefined,
     timestamp: new Date().toISOString(),
   };
   await pushToAbly(activity);
@@ -215,6 +220,7 @@ async function handleBillingUpdated(event: BillingUpdatedEvent): Promise<void> {
     agentName: event.agentId,
     ownerWallet: event.ownerWallet,
     priceXlm: event.earnedXlm,
+    invoiceId: `inv_${event.agentId.slice(0, 6)}_${Date.now()}`,
     totalEarnedXlm: event.totalEarnedXlm,
     totalRequests: event.totalRequests,
     timestamp: event.updatedAt,
