@@ -9,7 +9,7 @@
  * deployment account and emits a ChainSyncedEvent for each new ledger entry.
  */
 
-import { createConsumer, publish, TOPICS } from '../lib/qstash';
+import { createConsumer, publish, TOPICS } from '../lib/kafka';
 import { watchAccountTransactions } from '../lib/stellar';
 import type { ChainSyncedEvent } from '../types/events';
 

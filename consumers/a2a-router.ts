@@ -11,7 +11,7 @@
  * sub-tasks to another with payment handled automatically.
  */
 
-import { createConsumer, publish, TOPICS } from '../lib/qstash';
+import { createConsumer, publish, TOPICS } from '../lib/kafka';
 import type { A2ARequestEvent, A2AResponseEvent } from '../types/events';
 
 const CONSUMER_GROUP = 'agentforge-a2a-router';

@@ -12,7 +12,7 @@
  */
 
 import Ably from 'ably';
-import { createConsumer, publish, TOPICS } from '../lib/qstash';
+import { createConsumer, publish, TOPICS } from '../lib/kafka';
 import type {
   AgentCompletedEvent,
   BillingUpdatedEvent,

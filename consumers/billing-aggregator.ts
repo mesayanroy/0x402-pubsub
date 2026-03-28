@@ -9,7 +9,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { createConsumer, publish, TOPICS } from '../lib/qstash';
+import { createConsumer, publish, TOPICS } from '../lib/kafka';
 import type { AgentCompletedEvent, BillingUpdatedEvent } from '../types/events';
 
 const CONSUMER_GROUP = 'agentforge-billing-aggregator';

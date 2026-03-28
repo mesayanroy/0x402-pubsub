@@ -149,7 +149,7 @@ export async function POST(
 
       // Best-effort fan-out to Kafka for analytics/consumers.
       try {
-        const { publish, TOPICS } = await import('@/lib/qstash');
+        const { publish, TOPICS } = await import('@/lib/kafka');
         await publish(TOPICS.PAYMENT_PENDING, {
           requestId,
           agentId,
@@ -182,9 +182,6 @@ export async function POST(
         output_response: { output },
         payment_tx_hash: paymentTxHash,
         payment_amount_xlm: paymentTxHash ? agent.price_xlm : 0,
-        tx_explorer_url: paymentTxHash
-          ? `https://stellar.expert/explorer/testnet/tx/${paymentTxHash}`
-          : null,
         protocol: '0x402',
         status: 'success',
         latency_ms: latencyMs,
@@ -221,7 +218,7 @@ export async function POST(
     await publishMarketplaceActivity(activity);
 
     try {
-      const { publish, TOPICS } = await import('@/lib/qstash');
+      const { publish, TOPICS } = await import('@/lib/kafka');
       await publish(TOPICS.AGENT_COMPLETED, {
         requestId,
         agentId,
