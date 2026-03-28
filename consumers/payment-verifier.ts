@@ -9,7 +9,7 @@
  *  3. Publishes `agentforge.payment.confirmed` so the Agent Executor can proceed.
  */
 
-import { createConsumer, publish, TOPICS } from '../lib/kafka';
+import { createConsumer, publish, TOPICS } from '../lib/qstash';
 import { waitForTransaction } from '../lib/stellar';
 import type { PaymentPendingEvent, PaymentConfirmedEvent } from '../types/events';
 

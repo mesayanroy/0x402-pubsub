@@ -45,6 +45,7 @@ CREATE TABLE agent_requests (
   output_response JSONB,
   payment_tx_hash TEXT,
   payment_amount_xlm NUMERIC(10,4),
+  tx_explorer_url TEXT,  -- https://stellar.expert/explorer/{network}/tx/{hash}
   protocol TEXT DEFAULT '0x402',
   status TEXT DEFAULT 'success' CHECK (status IN ('success', 'failed', 'pending')),
   latency_ms INT,
