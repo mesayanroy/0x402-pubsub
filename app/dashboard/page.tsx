@@ -151,9 +151,6 @@ export default function DashboardPage() {
   const [modelMetrics, setModelMetrics] = useState<ModelMetric[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
   const fetchData = useCallback(async (addr: string) => {
     try {
       // Fetch my agents
@@ -162,22 +159,12 @@ export default function DashboardPage() {
       const agents = agentsData.agents ?? [];
       setMyAgents(agents);
 
-      // Fetch recent requests from Supabase directly if keys are available
-      if (SUPABASE_URL && SUPABASE_ANON_KEY && agents.length > 0) {
-        const agentIds = agents.map((a) => a.id);
-        const qs = agentIds.map((id) => `agent_id=eq.${id}`).join(',');
-        const reqRes = await fetch(
-          `${SUPABASE_URL}/rest/v1/agent_requests?or=(${qs})&order=created_at.desc&limit=50`,
-          {
-            headers: {
-              apikey: SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-          }
-        );
-        if (reqRes.ok) {
-          const requests = (await reqRes.json()) as AgentRequest[];
-          setRecentRequests(requests);
+      // Fetch recent requests via server-side API route (uses service-role key)
+      const reqRes = await fetch(`/api/dashboard/requests?owner=${addr}&limit=50`);
+      if (reqRes.ok) {
+        const reqData = (await reqRes.json()) as { requests?: AgentRequest[] };
+        const requests = reqData.requests ?? [];
+        setRecentRequests(requests);
 
           // Build hourly metrics (last 24h)
           const now = Date.now();
@@ -220,14 +207,13 @@ export default function DashboardPage() {
               earned_xlm: parseFloat(v.earned_xlm.toFixed(4)),
             }))
           );
-        }
       }
     } catch (err) {
       console.error('Dashboard fetch error:', err);
     } finally {
       setLoading(false);
     }
-  }, [SUPABASE_URL, SUPABASE_ANON_KEY]);
+  }, []);
 
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
