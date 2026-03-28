@@ -1,5 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Prevent Next.js from bundling native Node.js modules (stellar-sdk uses
+  // sodium-native which is a native addon). This keeps them as external
+  // Node.js requires inside serverless functions instead of being inlined
+  // by webpack, which would fail on Vercel/Edge environments.
+  serverExternalPackages: ['stellar-sdk', '@stellar/stellar-base', 'sodium-native'],
+
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
