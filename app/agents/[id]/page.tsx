@@ -7,6 +7,7 @@ import { Agent } from '@/types';
 import TerminalOutput from '@/components/TerminalOutput';
 import PaymentModal from '@/components/PaymentModal';
 import { truncateAddress } from '@/lib/stellar';
+import { useMarketplaceFeed } from '@/hooks/useMarketplaceFeed';
 
 const MOCK_AGENT: Agent = {
   id: '1',
@@ -29,7 +30,9 @@ const MOCK_AGENT: Agent = {
 
 export default function AgentDetailPage() {
   const { id } = useParams();
-  const [agent, setAgent] = useState<Agent>(MOCK_AGENT);
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -41,20 +44,34 @@ export default function AgentDetailPage() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const agentId = Array.isArray(id) ? id[0] : id ?? '';
+
+  // Real-time feed filtered to this agent's activity
+  const { events: realtimeEvents, isConnected } = useMarketplaceFeed({ maxEvents: 5 });
+  const agentEvents = realtimeEvents.filter((e) => e.agentId === agentId);
+
   useEffect(() => {
     const fetchAgent = async () => {
+      setLoading(true);
       try {
-        const res = await fetch(`/api/agents/${id}`);
+        const res = await fetch(`/api/agents/${agentId}`);
         if (res.ok) {
           const data = await res.json();
           setAgent(data);
+        } else if (res.status === 404) {
+          setNotFound(true);
+          setAgent(MOCK_AGENT);
+        } else {
+          setAgent(MOCK_AGENT);
         }
       } catch {
-        // use mock
+        setAgent(MOCK_AGENT);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchAgent();
-  }, [id]);
+    if (agentId) fetchAgent();
+  }, [agentId]);
 
   const runAgent = async (txHash?: string) => {
     setRunning(true);
@@ -66,7 +83,7 @@ export default function AgentDetailPage() {
         headers['X-Payment-Tx-Hash'] = txHash;
         if (walletAddress) headers['X-Payment-Wallet'] = walletAddress;
       }
-      const res = await fetch(`/api/agents/${id}/run`, {
+      const res = await fetch(`/api/agents/${agentId}/run`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ input }),
@@ -77,7 +94,7 @@ export default function AgentDetailPage() {
           setPaymentChallenge({
             memo: data.payment_details.memo,
             address: data.payment_details.address,
-            amountXlm: Number(data.payment_details.amount_xlm ?? agent.price_xlm),
+            amountXlm: Number(data.payment_details.amount_xlm ?? agent?.price_xlm ?? 0),
           });
         }
         setPaymentModal(true);
@@ -92,9 +109,32 @@ export default function AgentDetailPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-500 font-mono text-sm">Loading agent...</div>
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="font-syne text-2xl font-bold text-white mb-3">Agent Not Found</h2>
+          <p className="text-gray-400 font-mono text-sm">
+            The agent with ID <span className="text-[#00FFE5]">{agentId}</span> does not exist or has been removed.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!agent) return null;
+
   const apiDocsContent = `## Agent API Docs
 
-Endpoint: POST ${agent.api_endpoint || `https://agentforge.dev/api/agents/${id}/run`}
+Endpoint: POST ${agent.api_endpoint || `https://agentforge.dev/api/agents/${agentId}/run`}
 Auth: Bearer {your_api_key}
 Payment: 0x402 — ${agent.price_xlm} XLM per request
 
@@ -186,6 +226,45 @@ X-Payment-Wallet: {your_G_address}
           {output && (
             <TerminalOutput content={output} title="response" language="json" />
           )}
+
+          {/* Real-time activity feed for this agent */}
+          <div className="rounded-2xl border border-white/[0.06] bg-[rgba(5,5,8,0.85)] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#00FFE5] animate-pulse' : 'bg-amber-400'}`} />
+                <span className="font-mono text-xs text-white/70">Live Transactions</span>
+              </div>
+              <span className="font-mono text-[10px] text-white/30">{isConnected ? 'connected' : 'connecting'} · Stellar</span>
+            </div>
+            <div className="divide-y divide-white/[0.03]">
+              {agentEvents.length === 0 ? (
+                <div className="px-5 py-4 font-mono text-xs text-white/40">
+                  No activity yet for this agent. Run a request to see real-time events.
+                </div>
+              ) : (
+                agentEvents.map((ev, idx) => (
+                  <div key={`${ev.timestamp}-${idx}`} className="flex items-center justify-between px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono border uppercase tracking-wide bg-[rgba(0,255,229,0.1)] border-[rgba(0,255,229,0.3)] text-[#00FFE5]">
+                        {ev.eventType.replace(/_/g, '\u00A0')}
+                      </span>
+                      <span className="font-mono text-xs text-white/50">
+                        {ev.callerWallet ? truncateAddress(ev.callerWallet) : 'anonymous'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {typeof ev.priceXlm === 'number' && ev.priceXlm > 0 && (
+                        <span className="font-mono text-xs text-[#4ade80]">+{ev.priceXlm.toFixed(2)} XLM</span>
+                      )}
+                      <span className="font-mono text-[10px] text-white/30">
+                        {new Date(ev.timestamp).toLocaleTimeString('en-US', { hour12: false })}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
 
           {/* API Docs */}
           <div>

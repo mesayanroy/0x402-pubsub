@@ -20,10 +20,10 @@ export async function GET(
         .eq('id', id)
         .single();
 
-      if (error || !data) {
-        return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
+      if (!error && data) {
+        return NextResponse.json(data);
       }
-      return NextResponse.json(data);
+      // Fall through to demo agents when not found in Supabase
     }
 
     const demo = getDemoAgentById(id);

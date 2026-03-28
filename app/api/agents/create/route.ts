@@ -75,7 +75,21 @@ export async function POST(req: NextRequest) {
 
       if (agentError) {
         console.error('Supabase error:', agentError);
-        // Return success with generated data even if DB fails in demo mode
+        // Fall back to in-memory demo store so the agent is viewable this session
+        upsertDemoAgent({
+          id: agentId,
+          owner_wallet,
+          name,
+          description,
+          tags: tags || [],
+          model,
+          system_prompt,
+          tools: tools || [],
+          price_xlm: parseFloat(price_xlm) || 0.01,
+          visibility: visibility || 'public',
+          api_endpoint: apiEndpoint,
+          api_key: apiKey,
+        });
       }
     } else {
       upsertDemoAgent({
