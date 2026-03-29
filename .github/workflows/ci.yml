@@ -77,8 +77,6 @@ jobs:
     needs: build
     permissions:
       contents: read
-    # Only run on pushes to main (not on every PR)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
