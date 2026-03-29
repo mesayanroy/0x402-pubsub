@@ -39,3 +39,6 @@ contracts/agent_registry/target/
 
 # Rust build artifacts
 agents-sdk/target/
+
+# pnpm lock file — use npm (package-lock.json) for Vercel deployments
+pnpm-lock.yaml
