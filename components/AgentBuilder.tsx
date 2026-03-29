@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 
@@ -16,6 +16,9 @@ interface AgentFormData {
   priceXlm: string;
   visibility: 'public' | 'private' | 'forked';
 }
+
+const DRAFT_KEY = 'agent_builder_draft';
+const DRAFT_STEP_KEY = 'agent_builder_step';
 
 const initialData: AgentFormData = {
   name: '',
@@ -42,6 +45,36 @@ const stepLabels: Record<Step, string> = {
   deploy: '03 Deploy',
 };
 
+function loadDraft(): { form: AgentFormData; step: Step } {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    const stepRaw = localStorage.getItem(DRAFT_STEP_KEY);
+    const form = raw ? (JSON.parse(raw) as AgentFormData) : initialData;
+    const step: Step = (stepRaw as Step) || 'configure';
+    return { form, step };
+  } catch {
+    return { form: initialData, step: 'configure' };
+  }
+}
+
+function saveDraft(form: AgentFormData, step: Step) {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    localStorage.setItem(DRAFT_STEP_KEY, step);
+  } catch {
+    // localStorage may not be available in SSR — ignore
+  }
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(DRAFT_STEP_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export default function AgentBuilder() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('configure');
@@ -49,6 +82,23 @@ export default function AgentBuilder() {
   const [deploying, setDeploying] = useState(false);
   const [deployedAgent, setDeployedAgent] = useState<{ id: string; apiKey: string; endpoint: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  // Hydrate from localStorage on mount (client only)
+  useEffect(() => {
+    const { form: savedForm, step: savedStep } = loadDraft();
+    const hasData = savedForm.name || savedForm.description || savedForm.systemPrompt;
+    if (hasData) {
+      setForm(savedForm);
+      setStep(savedStep);
+      setDraftRestored(true);
+    }
+  }, []);
+
+  // Persist to localStorage whenever form or step changes
+  useEffect(() => {
+    saveDraft(form, step);
+  }, [form, step]);
 
   const stepIndex = steps.indexOf(step);
 
@@ -97,6 +147,7 @@ export default function AgentBuilder() {
         throw new Error(`${data.error || 'Deploy failed'}${extra}`);
       }
 
+      clearDraft();
       setDeployedAgent({ id: data.id, apiKey: data.api_key, endpoint: data.api_endpoint });
     } catch (err) {
       setError(String(err));
@@ -142,6 +193,18 @@ export default function AgentBuilder() {
 
   return (
     <div className="space-y-6">
+      {draftRestored && (
+        <div className="flex items-center justify-between p-3 rounded-lg border border-[rgba(255,184,0,0.3)] bg-[rgba(255,184,0,0.06)]">
+          <span className="text-xs font-mono text-[#FFB800]">📝 Draft restored from last session</span>
+          <button
+            onClick={() => { setForm(initialData); setStep('configure'); setDraftRestored(false); }}
+            className="text-xs font-mono text-gray-500 hover:text-red-400 transition-colors"
+          >
+            Clear draft
+          </button>
+        </div>
+      )}
+
       {/* Step indicator */}
       <div className="flex gap-2">
         {steps.map((s, i) => (

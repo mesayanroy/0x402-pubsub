@@ -57,6 +57,21 @@ export function useMarketplaceFeed(
     let closed = false;
 
     async function connect() {
+      // Check whether the Ably token endpoint is available before trying to
+      // open a realtime connection. When the server has no ABLY_API_KEY the
+      // endpoint returns 503 and we surface a graceful "unavailable" state
+      // instead of letting Ably spam the console with auth errors.
+      try {
+        const probe = await fetch('/api/ably/token', { method: 'GET' });
+        if (!probe.ok) {
+          setConnectionState('unavailable');
+          return;
+        }
+      } catch {
+        setConnectionState('unavailable');
+        return;
+      }
+
       // Dynamic import so this only runs in the browser
       const Ably = (await import('ably')).default;
 

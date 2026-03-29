@@ -4,6 +4,9 @@ import createMDX from '@next/mdx';
 const nextConfig = {
   pageExtensions: ['ts', 'tsx', 'md', 'mdx'],
 
+  // Enable standalone output so the Docker image only ships what is needed.
+  output: 'standalone',
+
   // Prevent Next.js from bundling native Node.js modules (stellar-sdk uses
   // sodium-native which is a native addon). This keeps them as external
   // Node.js requires inside serverless functions instead of being inlined
