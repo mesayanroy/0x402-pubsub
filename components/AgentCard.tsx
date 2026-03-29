@@ -56,7 +56,19 @@ export default function AgentCard({ agent, onFork }: AgentCardProps) {
       )}
 
       <div className="flex items-center justify-between text-xs font-mono text-gray-500 border-t border-[rgba(255,255,255,0.05)] pt-3">
-        <span title={safeOwner}>{truncateAddress(safeOwner)}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="w-4 h-4 rounded-full bg-gradient-to-br from-[#00FFE5] to-[#FFB800] flex items-center justify-center text-[8px] text-black font-bold shrink-0">
+            {safeOwner.slice(1, 2)}
+          </span>
+          <a
+            href={`/dashboard?wallet=${safeOwner}`}
+            title={`Owner: ${safeOwner}`}
+            className="hover:text-[#00FFE5] transition-colors truncate max-w-[90px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {truncateAddress(safeOwner)}
+          </a>
+        </div>
         <div className="flex items-center gap-3">
           <span>{totalRequests.toLocaleString()} reqs</span>
           <span className="text-[#FFB800]">{priceXlm} XLM/req</span>

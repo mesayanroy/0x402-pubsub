@@ -1,0 +1,70 @@
+version: '3.9'
+
+services:
+  # ── AgentForge Next.js web application ─────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-testnet}
+        NEXT_PUBLIC_HORIZON_URL: ${NEXT_PUBLIC_HORIZON_URL:-https://horizon-testnet.stellar.org}
+    image: agentforge:latest
+    container_name: agentforge-web
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Runtime secrets — copy .env.example → .env and fill in values
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ABLY_API_KEY: ${ABLY_API_KEY:-}
+      QSTASH_TOKEN: ${QSTASH_TOKEN:-}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
+      QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
+      NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-testnet}
+      NEXT_PUBLIC_HORIZON_URL: ${NEXT_PUBLIC_HORIZON_URL:-https://horizon-testnet.stellar.org}
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/agents/list']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── (Optional) QStash consumer service ─────────────────────────────────────
+  consumers:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agentforge:latest
+    container_name: agentforge-consumers
+    restart: unless-stopped
+    # Use ts-node to execute the TypeScript consumer entry-point directly.
+    # Alternatively, compile first with `npm run build` and run the JS output.
+    command: ['npx', 'ts-node', '--project', 'tsconfig.json', 'consumers/index.ts']
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ABLY_API_KEY: ${ABLY_API_KEY:-}
+      QSTASH_TOKEN: ${QSTASH_TOKEN:-}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
+      QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
+      NEXT_PUBLIC_STELLAR_NETWORK: ${NEXT_PUBLIC_STELLAR_NETWORK:-testnet}
+      NEXT_PUBLIC_HORIZON_URL: ${NEXT_PUBLIC_HORIZON_URL:-https://horizon-testnet.stellar.org}
+
+networks:
+  default:
+    name: agentforge-network
