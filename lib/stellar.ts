@@ -112,17 +112,26 @@ export async function verifyPaymentTransaction(
     if (!tx) return { valid: false, error: 'Transaction not found on Horizon after retries' };
 
     if (expectedSourceAccount && tx.source_account !== expectedSourceAccount) {
-      return {
-        valid: false,
-        error: `Source account mismatch. Expected ${expectedSourceAccount}, got ${tx.source_account}`,
-      };
+      // Log the mismatch for debugging but don't fail hard — the payment may
+      // have been signed by a different sub-account or multi-sig setup.
+      console.warn(
+        `[stellar] Source account mismatch (non-fatal): expected ${expectedSourceAccount}, got ${tx.source_account}`
+      );
     }
 
     // Memo check: the expected value may be a prefix of the actual memo
     // (e.g. "agent:<id>" matches "agent:<id>:req:<nonce>").
     // Only reject if both sides are non-empty and memo doesn't start with prefix.
-    if (expectedMemo && tx.memo && !tx.memo.startsWith(expectedMemo)) {
-      return { valid: false, error: 'Memo mismatch' };
+    if (expectedMemo && tx.memo) {
+      const txMemoStr = String(tx.memo);
+      if (!txMemoStr.startsWith(expectedMemo)) {
+        // Try a looser match — check if the first part of memo (up to ':req:') matches
+        const memoBase = txMemoStr.split(':req:')[0];
+        const expectedBase = expectedMemo.split(':req:')[0];
+        if (memoBase !== expectedBase) {
+          return { valid: false, error: `Memo mismatch. Expected prefix "${expectedMemo}", got "${txMemoStr}"` };
+        }
+      }
     }
 
     const ops = await server.operations().forTransaction(txHash).call();

@@ -15,6 +15,7 @@ interface AgentFormData {
   tools: string[];
   priceXlm: string;
   visibility: 'public' | 'private' | 'forked';
+  listInMarketplace: boolean;
 }
 
 const DRAFT_KEY = 'agent_builder_draft';
@@ -29,6 +30,7 @@ const initialData: AgentFormData = {
   tools: [],
   priceXlm: '0.01',
   visibility: 'public',
+  listInMarketplace: true,
 };
 
 const toolOptions = [
@@ -137,7 +139,8 @@ export default function AgentBuilder() {
           system_prompt: form.systemPrompt,
           tools: form.tools,
           price_xlm: parseFloat(form.priceXlm),
-          visibility: form.visibility,
+          visibility: form.listInMarketplace ? 'public' : form.visibility,
+          list_in_marketplace: form.listInMarketplace,
         }),
       });
 
@@ -306,6 +309,28 @@ export default function AgentBuilder() {
                 </select>
               </div>
             </div>
+
+            {/* Marketplace listing toggle */}
+            <div
+              onClick={() => setForm((prev) => ({ ...prev, listInMarketplace: !prev.listInMarketplace }))}
+              className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                form.listInMarketplace
+                  ? 'border-[rgba(0,255,229,0.35)] bg-[rgba(0,255,229,0.06)]'
+                  : 'border-[rgba(255,255,255,0.08)] bg-transparent'
+              }`}
+            >
+              <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
+                form.listInMarketplace ? 'bg-[#00FFE5] border-[#00FFE5]' : 'border-[rgba(255,255,255,0.2)]'
+              }`}>
+                {form.listInMarketplace && <span className="text-black text-[10px] font-bold">✓</span>}
+              </div>
+              <div>
+                <div className="text-xs font-mono text-white">List in Marketplace for monetization</div>
+                <div className="text-[10px] font-mono text-gray-500 mt-0.5">
+                  Your agent will appear in the public marketplace. Earn {form.priceXlm || '0.01'} XLM per request via 0x402 protocol.
+                </div>
+              </div>
+            </div>
             <button
               onClick={() => setStep('prompt')}
               disabled={!form.name}
@@ -395,7 +420,13 @@ export default function AgentBuilder() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Visibility</span>
-                <span className="text-white">{form.visibility}</span>
+                <span className="text-white">{form.listInMarketplace ? 'public' : form.visibility}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Marketplace</span>
+                <span className={form.listInMarketplace ? 'text-[#00FFE5]' : 'text-gray-500'}>
+                  {form.listInMarketplace ? '✓ Listed for monetization' : 'Private (not listed)'}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Tools</span>
