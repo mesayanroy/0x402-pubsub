@@ -95,8 +95,21 @@ export async function verifyPaymentTransaction(
   expectedSourceAccount?: string
 ): Promise<{ valid: boolean; error?: string }> {
   try {
-    const tx = await server.transactions().transaction(txHash).call();
-    if (!tx) return { valid: false, error: 'Transaction not found' };
+    // Poll for the transaction with retries to handle Horizon propagation delay.
+    let tx: StellarSdk.Horizon.ServerApi.TransactionRecord | null = null;
+    const maxAttempts = 6;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        tx = await server.transactions().transaction(txHash).call();
+        if (tx) break;
+      } catch {
+        // Not yet indexed — wait 3 s and retry
+      }
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
+    }
+    if (!tx) return { valid: false, error: 'Transaction not found on Horizon after retries' };
 
     if (expectedSourceAccount && tx.source_account !== expectedSourceAccount) {
       return {
@@ -106,7 +119,8 @@ export async function verifyPaymentTransaction(
     }
 
     // Memo check: the expected value may be a prefix of the actual memo
-    // (e.g. "agent:<id>" matches "agent:<id>:req:<nonce>")
+    // (e.g. "agent:<id>" matches "agent:<id>:req:<nonce>").
+    // Only reject if both sides are non-empty and memo doesn't start with prefix.
     if (expectedMemo && tx.memo && !tx.memo.startsWith(expectedMemo)) {
       return { valid: false, error: 'Memo mismatch' };
     }
