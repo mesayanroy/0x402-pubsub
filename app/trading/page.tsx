@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -12,8 +14,6 @@ import {
   YAxis,
   ReferenceLine,
 } from 'recharts';
-
-// ── Types ──────────────────────────────────────────────────────────────────
 
 interface OHLC {
   ts: string;
@@ -33,6 +33,7 @@ interface Order {
   status: 'open' | 'filled' | 'cancelled';
   timestamp: string;
   agent?: string;
+  pair: string;
 }
 
 interface Position {
@@ -45,80 +46,87 @@ interface Position {
   liquidationPrice: number;
   tp: number | null;
   sl: number | null;
+  pair: string;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function fmtXLM(n: number) {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+interface TokenInfo {
+  price: number;
+  change24h: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
 }
 
-function fmtUSD(n: number) {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const TOKEN_PAIRS = [
+  { id: 'xlm', symbol: 'XLM/USDC', name: 'Stellar Lumens', coinGeckoId: 'stellar', icon: '⭐' },
+  { id: 'btc', symbol: 'BTC/USDC', name: 'Bitcoin', coinGeckoId: 'bitcoin', icon: '₿' },
+  { id: 'eth', symbol: 'ETH/USDC', name: 'Ethereum', coinGeckoId: 'ethereum', icon: 'Ξ' },
+  { id: 'sol', symbol: 'SOL/USDC', name: 'Solana', coinGeckoId: 'solana', icon: '◎' },
+  { id: 'bnb', symbol: 'BNB/USDC', name: 'BNB', coinGeckoId: 'binancecoin', icon: '●' },
+  { id: 'xrp', symbol: 'XRP/USDC', name: 'XRP', coinGeckoId: 'ripple', icon: '✕' },
+  { id: 'usdt', symbol: 'USDT/USDC', name: 'Tether', coinGeckoId: 'tether', icon: '₮' },
+  { id: 'usdc', symbol: 'USDC/XLM', name: 'USD Coin', coinGeckoId: 'usd-coin', icon: '$' },
+] as const;
+
+const FALLBACK_PRICES: Record<string, number> = {
+  stellar: 0.1242,
+  bitcoin: 67500,
+  ethereum: 3800,
+  solana: 185,
+  binancecoin: 420,
+  ripple: 0.55,
+  tether: 1.0,
+  'usd-coin': 1.0,
+};
+
+const AGENT_TEMPLATES = [
+  { id: 'breakout-bot', name: 'Breakout Bot', description: 'Detects price breakouts above/below Bollinger Bands and enters with tight TP/SL.', priceXlm: 0.05, tags: ['breakout', 'automated', 'xlm'], category: 'strategy' },
+  { id: 'mean-reversion', name: 'Mean Reversion', description: 'Fades extreme moves back toward the 20-period moving average on XLM/USDC.', priceXlm: 0.03, tags: ['reversion', 'xlm', 'dca'], category: 'strategy' },
+  { id: 'trend-follower', name: 'Trend Follower', description: 'Rides established trends using EMA crossovers and trailing stop-loss on Stellar.', priceXlm: 0.07, tags: ['trend', 'ema', 'automated'], category: 'strategy' },
+  { id: 'arbitrage-sentinel', name: 'Arbitrage Sentinel', description: 'Monitors XLM price across Stellar DEX pools for arb opportunities in real time.', priceXlm: 0.1, tags: ['arb', 'dex', 'defi'], category: 'arbitrage' },
+  { id: 'mev-scanner', name: 'MEV Scanner', description: 'Scans Stellar DEX order books for MEV opportunities including front-running and sandwich trade detection.', priceXlm: 0.15, tags: ['mev', 'dex', 'advanced'], category: 'mev' },
+  { id: 'mempool-monitor', name: 'Mempool Monitor', description: 'Watches Stellar transaction mempool for large pending orders and alerts before settlement.', priceXlm: 0.08, tags: ['mempool', 'alerts', 'real-time'], category: 'monitor' },
+  { id: 'liquidity-slippage', name: 'Liquidity & Slippage Tracker', description: 'Tracks pool depth and estimated slippage across Stellar DEX AMM pools. Alerts when slippage exceeds your threshold.', priceXlm: 0.06, tags: ['liquidity', 'slippage', 'amm'], category: 'monitor' },
+  { id: 'multi-token-arb', name: 'Multi-Token Arbitrage', description: 'Cross-chain arbitrage scanner covering XLM, BTC, ETH, SOL price discrepancies across DEX and CEX venues.', priceXlm: 0.2, tags: ['arb', 'multi-chain', 'advanced'], category: 'arbitrage' },
+];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  strategy: 'text-[#00FFE5] border-[rgba(0,255,229,0.3)] bg-[rgba(0,255,229,0.08)]',
+  arbitrage: 'text-[#FFB800] border-[rgba(255,184,0,0.3)] bg-[rgba(255,184,0,0.08)]',
+  mev: 'text-purple-400 border-purple-900 bg-purple-900/10',
+  monitor: 'text-blue-400 border-blue-900 bg-blue-900/10',
+};
+
+function fmtPrice(n: number): string {
+  if (n >= 1000) return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 1) return n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  return n.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
 }
 
-/** Generates deterministic-looking fake OHLC history. */
-function generateHistory(candles = 60): OHLC[] {
-  const base = 0.1242;
-  let price = base;
+function generateHistory(basePrice: number, candles = 60): OHLC[] {
+  let price = basePrice;
   const now = Date.now();
+  const volatility = basePrice > 1000 ? 0.005 : basePrice > 1 ? 0.008 : 0.015;
   return Array.from({ length: candles }, (_, i) => {
-    const jitter = (Math.random() - 0.48) * 0.004;
+    const jitter = (Math.random() - 0.48) * basePrice * volatility;
     const open = price;
-    const close = Math.max(0.05, price + jitter);
-    const high = Math.max(open, close) + Math.random() * 0.002;
-    const low = Math.min(open, close) - Math.random() * 0.002;
+    const close = Math.max(basePrice * 0.1, price + jitter);
+    const high = Math.max(open, close) + Math.random() * basePrice * volatility * 0.5;
+    const low = Math.min(open, close) - Math.random() * basePrice * volatility * 0.5;
     const volume = 20000 + Math.random() * 80000;
     price = close;
-    return {
-      ts: new Date(now - (candles - 1 - i) * 60_000).toISOString(),
-      open,
-      high,
-      low,
-      close,
-      volume,
-    };
+    return { ts: new Date(now - (candles - 1 - i) * 60_000).toISOString(), open, high, low, close, volume };
   });
 }
 
-const AGENT_TEMPLATES = [
-  {
-    id: 'breakout-bot',
-    name: 'Breakout Bot',
-    description: 'Detects price breakouts above/below Bollinger Bands and enters with tight TP/SL.',
-    priceXlm: 0.05,
-    tags: ['breakout', 'automated', 'xlm'],
-  },
-  {
-    id: 'mean-reversion',
-    name: 'Mean Reversion',
-    description: 'Fades extreme moves back toward the 20-period moving average on XLM/USDC.',
-    priceXlm: 0.03,
-    tags: ['reversion', 'xlm', 'dca'],
-  },
-  {
-    id: 'trend-follower',
-    name: 'Trend Follower',
-    description: 'Rides established trends using EMA crossovers and trailing stop-loss on Stellar.',
-    priceXlm: 0.07,
-    tags: ['trend', 'ema', 'automated'],
-  },
-  {
-    id: 'arbitrage-sentinel',
-    name: 'Arbitrage Sentinel',
-    description: 'Monitors XLM price across Stellar DEX pools for arb opportunities.',
-    priceXlm: 0.1,
-    tags: ['arb', 'dex', 'defi'],
-  },
-];
-
-// ── Main Component ─────────────────────────────────────────────────────────
-
 export default function TradingPage() {
+  const [selectedPairId, setSelectedPairId] = useState('xlm');
   const [network, setNetwork] = useState<'testnet' | 'mainnet'>('testnet');
-  const [candles, setCandles] = useState<OHLC[]>(() => generateHistory(60));
-  const [currentPrice, setCurrentPrice] = useState<number>(candles[candles.length - 1].close);
-  const [priceChange24h, setPriceChange24h] = useState<number>(3.21);
+  const [tokenPrices, setTokenPrices] = useState<Record<string, TokenInfo>>({});
+  const [pricesLoading, setPricesLoading] = useState(true);
+  const [pricesError, setPricesError] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<string>('');
+  const [candles, setCandles] = useState<OHLC[]>([]);
   const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [orderAmount, setOrderAmount] = useState('100');
@@ -131,164 +139,193 @@ export default function TradingPage() {
   const [position, setPosition] = useState<Position | null>(null);
   const [activeTab, setActiveTab] = useState<'chart' | 'agents'>('chart');
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const [tvl] = useState(1_247_832);
+  const [agentCategory, setAgentCategory] = useState('all');
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const priceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Simulate live price ticks
-  useEffect(() => {
-    tickerRef.current = setInterval(() => {
-      setCurrentPrice((prev) => {
-        const delta = (Math.random() - 0.49) * 0.0008;
-        const next = Math.max(0.05, prev + delta);
-        const change = ((next - 0.1242) / 0.1242) * 100;
-        setPriceChange24h(parseFloat(change.toFixed(2)));
+  const selectedPair = TOKEN_PAIRS.find((p) => p.id === selectedPairId) ?? TOKEN_PAIRS[0];
+  const currentTokenInfo = tokenPrices[selectedPair.coinGeckoId];
+  const currentPrice = currentTokenInfo?.price ?? FALLBACK_PRICES[selectedPair.coinGeckoId] ?? 0;
+  const priceChange24h = currentTokenInfo?.change24h ?? 0;
+  const isUp = priceChange24h >= 0;
 
-        setCandles((prev) => {
-          const last = prev[prev.length - 1];
-          const updated: OHLC = {
-            ...last,
-            close: next,
-            high: Math.max(last.high, next),
-            low: Math.min(last.low, next),
-            volume: last.volume + Math.random() * 500,
+  const fetchPrices = useCallback(async () => {
+    const ids = TOKEN_PAIRS.map((p) => p.coinGeckoId).join(',');
+    try {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_high_24h=true&include_low_24h=true`
+      );
+      if (!res.ok) throw new Error('rate limited');
+      const data = await res.json() as Record<string, Record<string, number>>;
+      const updated: Record<string, TokenInfo> = {};
+      for (const pair of TOKEN_PAIRS) {
+        const d = data[pair.coinGeckoId];
+        if (d) {
+          updated[pair.coinGeckoId] = {
+            price: d.usd ?? FALLBACK_PRICES[pair.coinGeckoId] ?? 0,
+            change24h: d.usd_24h_change ?? 0,
+            high24h: d.usd_24h_high ?? 0,
+            low24h: d.usd_24h_low ?? 0,
+            volume24h: d.usd_24h_vol ?? 0,
           };
-          return [...prev.slice(0, -1), updated];
-        });
-
-        // Update unrealised PnL on open position
-        setPosition((pos) => {
-          if (!pos) return pos;
-          const pnl =
-            pos.side === 'long'
-              ? (next - pos.entryPrice) * pos.size
-              : (pos.entryPrice - next) * pos.size;
-          return { ...pos, unrealisedPnl: pnl };
-        });
-
-        return next;
-      });
-    }, 1500);
-
-    return () => {
-      if (tickerRef.current) clearInterval(tickerRef.current);
-    };
+        }
+      }
+      setTokenPrices(updated);
+      setLastUpdate(new Date().toLocaleTimeString([], { hour12: false }));
+      setPricesError(false);
+    } catch {
+      setPricesError(true);
+      if (Object.keys(tokenPrices).length === 0) {
+        const fallback: Record<string, TokenInfo> = {};
+        for (const pair of TOKEN_PAIRS) {
+          fallback[pair.coinGeckoId] = { price: FALLBACK_PRICES[pair.coinGeckoId] ?? 0, change24h: 0, high24h: 0, low24h: 0, volume24h: 0 };
+        }
+        setTokenPrices(fallback);
+      }
+    } finally {
+      setPricesLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Compute breakout reference lines from last 20 candles
-  const recentHigh = Math.max(...candles.slice(-20).map((c) => c.high));
-  const recentLow = Math.min(...candles.slice(-20).map((c) => c.low));
+  useEffect(() => {
+    void fetchPrices();
+    priceIntervalRef.current = setInterval(() => void fetchPrices(), 60_000);
+    return () => { if (priceIntervalRef.current) clearInterval(priceIntervalRef.current); };
+  }, [fetchPrices]);
+
+  // Seed candles when pair changes (use FALLBACK_PRICES directly to avoid stale closure on currentPrice)
+  useEffect(() => {
+    const base = FALLBACK_PRICES[selectedPair.coinGeckoId] || 1;
+    setCandles(generateHistory(base, 60));
+    setPosition(null);
+  }, [selectedPairId, selectedPair.coinGeckoId]);
+
+  // Live price tick simulation — restart whenever candles are seeded or pair changes
+  useEffect(() => {
+    if (tickerRef.current) clearInterval(tickerRef.current);
+    if (!candles.length) return;
+    tickerRef.current = setInterval(() => {
+      setCandles((prev) => {
+        if (!prev.length) return prev;
+        const last = prev[prev.length - 1];
+        const bp = last.close;
+        const vol = bp > 1000 ? 0.0008 : bp > 1 ? 0.001 : 0.003;
+        const delta = (Math.random() - 0.49) * bp * vol;
+        const next = Math.max(bp * 0.01, last.close + delta);
+        const updated: OHLC = { ...last, close: next, high: Math.max(last.high, next), low: Math.min(last.low, next), volume: last.volume + Math.random() * 500 };
+        return [...prev.slice(0, -1), updated];
+      });
+    }, 2000);
+    return () => { if (tickerRef.current) clearInterval(tickerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candles.length, selectedPairId]);
+
+  // Load wallet balance
+  useEffect(() => {
+    const addr = localStorage.getItem('wallet_address');
+    if (!addr) return;
+    setWalletAddress(addr);
+    const load = async () => {
+      try {
+        const { getXlmBalance } = await import('@/lib/stellar');
+        const bal = await getXlmBalance(addr);
+        setWalletBalance(bal);
+      } catch { /* ignore */ }
+    };
+    void load();
+  }, []);
+
+  const recentHigh = candles.length ? Math.max(...candles.slice(-20).map((c) => c.high)) : 0;
+  const recentLow = candles.length ? Math.min(...candles.slice(-20).map((c) => c.low)) : 0;
+  const chartData = candles.slice(-40).map((c) => ({ ts: c.ts, price: c.close, high: c.high, low: c.low, volume: c.volume }));
 
   const submitOrder = useCallback(() => {
-    setOrderError(null);
-    setOrderSuccess(null);
-
+    setOrderError(null); setOrderSuccess(null);
     const amt = parseFloat(orderAmount);
     const col = parseFloat(collateral);
     if (!amt || amt <= 0) { setOrderError('Enter a valid amount.'); return; }
     if (!col || col <= 0) { setOrderError('Enter valid collateral.'); return; }
-    if (orderType === 'limit' && (!limitPrice || parseFloat(limitPrice) <= 0)) {
-      setOrderError('Enter a valid limit price.');
-      return;
-    }
-
-    const price = orderType === 'market' ? currentPrice : parseFloat(limitPrice);
+    if (orderType === 'limit' && (!limitPrice || parseFloat(limitPrice) <= 0)) { setOrderError('Enter a valid limit price.'); return; }
+    const livePrice = candles[candles.length - 1]?.close ?? currentPrice;
+    const price = orderType === 'market' ? livePrice : parseFloat(limitPrice);
     const tp = tpPrice ? parseFloat(tpPrice) : null;
     const sl = slPrice ? parseFloat(slPrice) : null;
-
-    const newOrder: Order = {
-      id: Math.random().toString(36).slice(2, 10).toUpperCase(),
-      side: orderSide,
-      type: orderType,
-      amount: amt,
-      price,
-      status: orderType === 'market' ? 'filled' : 'open',
-      timestamp: new Date().toISOString(),
-      agent: selectedAgent || undefined,
-    };
-
+    const newOrder: Order = { id: Math.random().toString(36).slice(2, 10).toUpperCase(), side: orderSide, type: orderType, amount: amt, price, status: orderType === 'market' ? 'filled' : 'open', timestamp: new Date().toISOString(), agent: selectedAgent || undefined, pair: selectedPair.symbol };
     setOrders((prev) => [newOrder, ...prev.slice(0, 19)]);
-
     if (orderType === 'market') {
-      // Liquidation price = entry ± (collateral / (size × leverage))
-      // For longs  the price must fall by that offset to wipe the collateral;
-      // for shorts it must rise by the same offset.
       const liqOffset = col / (amt * leverage) * (orderSide === 'buy' ? -1 : 1);
-      setPosition({
-        side: orderSide === 'buy' ? 'long' : 'short',
-        entryPrice: price,
-        size: amt,
-        collateral: col,
-        leverage,
-        unrealisedPnl: 0,
-        liquidationPrice: price + liqOffset,
-        tp,
-        sl,
-      });
-      setOrderSuccess(`Market ${orderSide.toUpperCase()} filled @ ${fmtXLM(price)} XLM`);
+      setPosition({ side: orderSide === 'buy' ? 'long' : 'short', entryPrice: price, size: amt, collateral: col, leverage, unrealisedPnl: 0, liquidationPrice: price + liqOffset, tp, sl, pair: selectedPairId });
+      setOrderSuccess(`Market ${orderSide.toUpperCase()} filled @ $${fmtPrice(price)} · ${selectedPair.symbol}`);
     } else {
-      setOrderSuccess(`Limit order placed @ ${fmtXLM(price)} XLM`);
+      setOrderSuccess(`Limit order placed @ $${fmtPrice(price)} · ${selectedPair.symbol}`);
     }
-  }, [orderAmount, orderSide, orderType, limitPrice, tpPrice, slPrice, leverage, collateral, currentPrice, selectedAgent]);
+  }, [orderAmount, orderSide, orderType, limitPrice, tpPrice, slPrice, leverage, collateral, candles, currentPrice, selectedAgent, selectedPair, selectedPairId]);
 
   const closePosition = () => {
     if (!position) return;
-    const pnlStr = position.unrealisedPnl >= 0
-      ? `+${fmtXLM(position.unrealisedPnl)} XLM`
-      : `${fmtXLM(position.unrealisedPnl)} XLM`;
-    setOrderSuccess(`Position closed. PnL: ${pnlStr}`);
+    setOrderSuccess(`Position closed. PnL: ${position.unrealisedPnl >= 0 ? '+' : ''}$${fmtPrice(position.unrealisedPnl)}`);
     setPosition(null);
   };
 
-  const priceFmt = fmtXLM(currentPrice);
-  const isUp = priceChange24h >= 0;
-
-  const chartData = candles.slice(-40).map((c) => ({
-    ts: c.ts,
-    price: c.close,
-    high: c.high,
-    low: c.low,
-    volume: c.volume,
-  }));
+  const filteredAgents = agentCategory === 'all' ? AGENT_TEMPLATES : AGENT_TEMPLATES.filter((a) => a.category === agentCategory);
 
   return (
     <div className="min-h-screen">
       <div className="max-w-[1440px] mx-auto px-4 py-6 space-y-4">
-        {/* Header bar */}
+
+        {/* Token Pair Selector */}
+        <div className="flex flex-wrap gap-2 overflow-x-auto pb-1">
+          {TOKEN_PAIRS.map((pair) => {
+            const tp = tokenPrices[pair.coinGeckoId];
+            const change = tp?.change24h ?? 0;
+            return (
+              <button key={pair.id} onClick={() => setSelectedPairId(pair.id)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono transition-all ${selectedPairId === pair.id ? 'border-[#00FFE5] bg-[rgba(0,255,229,0.08)] text-white' : 'border-white/10 text-gray-400 hover:border-white/30'}`}>
+                <span>{pair.icon}</span>
+                <span>{pair.symbol}</span>
+                {tp && <span className={change >= 0 ? 'text-[#4ade80]' : 'text-red-400'}>{change >= 0 ? '+' : ''}{change.toFixed(2)}%</span>}
+              </button>
+            );
+          })}
+          {pricesError ? (
+            <span className="text-[10px] font-mono text-yellow-600 self-center">⚠ Using fallback prices</span>
+          ) : lastUpdate ? (
+            <span className="text-[10px] font-mono text-gray-600 self-center">Updated {lastUpdate}</span>
+          ) : null}
+        </div>
+
+        {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div>
-              <h1 className="font-syne text-2xl font-bold text-white">XLM / USDC</h1>
-              <div className="font-mono text-xs text-gray-500">Stellar {network === 'testnet' ? 'Testnet' : 'Mainnet'} · DEX</div>
+              <h1 className="font-syne text-2xl font-bold text-white">{selectedPair.icon} {selectedPair.symbol}</h1>
+              <div className="font-mono text-xs text-gray-500">{selectedPair.name} · Stellar {network === 'testnet' ? 'Testnet' : 'Mainnet'}</div>
             </div>
             <div>
-              <div className="font-mono text-3xl font-bold text-white">${priceFmt}</div>
-              <div className={`font-mono text-sm ${isUp ? 'text-[#4ade80]' : 'text-red-400'}`}>
-                {isUp ? '▲' : '▼'} {Math.abs(priceChange24h).toFixed(2)}% (24h)
-              </div>
+              <div className={`font-mono text-3xl font-bold ${pricesLoading ? 'text-gray-600 animate-pulse' : 'text-white'}`}>${fmtPrice(currentPrice)}</div>
+              <div className={`font-mono text-sm ${isUp ? 'text-[#4ade80]' : 'text-red-400'}`}>{isUp ? '▲' : '▼'} {Math.abs(priceChange24h).toFixed(2)}% (24h)</div>
             </div>
             <div className="hidden md:flex gap-6 font-mono text-xs text-gray-500 border-l border-white/10 pl-4">
-              <div><div className="text-gray-600">24h High</div><div className="text-white">{fmtXLM(recentHigh)}</div></div>
-              <div><div className="text-gray-600">24h Low</div><div className="text-white">{fmtXLM(recentLow)}</div></div>
-              <div><div className="text-gray-600">TVL</div><div className="text-[#00FFE5]">${(tvl / 1e6).toFixed(2)}M</div></div>
+              <div><div className="text-gray-600">24h High</div><div className="text-white">${fmtPrice(currentTokenInfo?.high24h ?? recentHigh)}</div></div>
+              <div><div className="text-gray-600">24h Low</div><div className="text-white">${fmtPrice(currentTokenInfo?.low24h ?? recentLow)}</div></div>
+              <div><div className="text-gray-600">24h Vol</div><div className="text-[#00FFE5]">{currentTokenInfo?.volume24h ? '$' + (currentTokenInfo.volume24h / 1e9).toFixed(2) + 'B' : '—'}</div></div>
             </div>
           </div>
-
-          {/* Network toggle */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {walletAddress && (
+              <div className="font-mono text-xs text-gray-500 border border-white/10 rounded-lg px-3 py-1.5">
+                XLM: <span className="text-[#FFB800]">{walletBalance ? parseFloat(walletBalance).toFixed(2) : '...'}</span>
+              </div>
+            )}
             {(['testnet', 'mainnet'] as const).map((n) => (
-              <button
-                key={n}
-                onClick={() => setNetwork(n)}
-                className={`px-4 py-1.5 text-xs font-mono rounded-full border transition-all ${
-                  network === n
-                    ? n === 'mainnet'
-                      ? 'border-[#4ade80] text-[#4ade80] bg-[rgba(74,222,128,0.1)]'
-                      : 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]'
-                    : 'border-white/10 text-gray-500 hover:text-gray-300'
-                }`}
-              >
+              <button key={n} onClick={() => setNetwork(n)}
+                className={`px-4 py-1.5 text-xs font-mono rounded-full border transition-all ${network === n ? (n === 'mainnet' ? 'border-[#4ade80] text-[#4ade80] bg-[rgba(74,222,128,0.1)]' : 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]') : 'border-white/10 text-gray-500 hover:text-gray-300'}`}>
                 {n === 'mainnet' ? '🟢 Mainnet' : '🔵 Testnet'}
               </button>
             ))}
@@ -298,15 +335,8 @@ export default function TradingPage() {
         {/* Tab bar */}
         <div className="flex gap-2 border-b border-white/[0.06] pb-0">
           {(['chart', 'agents'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={`px-4 py-2 text-xs font-mono border-b-2 transition-all -mb-px ${
-                activeTab === t
-                  ? 'border-[#00FFE5] text-[#00FFE5]'
-                  : 'border-transparent text-gray-500 hover:text-gray-300'
-              }`}
-            >
+            <button key={t} onClick={() => setActiveTab(t)}
+              className={`px-4 py-2 text-xs font-mono border-b-2 transition-all -mb-px ${activeTab === t ? 'border-[#00FFE5] text-[#00FFE5]' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
               {t === 'chart' ? '📈 Live Chart' : '🤖 Agent SDK Templates'}
             </button>
           ))}
@@ -314,28 +344,21 @@ export default function TradingPage() {
 
         <AnimatePresence mode="wait">
           {activeTab === 'chart' && (
-            <motion.div
-              key="chart"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4"
-            >
-              {/* Left: Chart + Position */}
+            <motion.div key="chart" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+              className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
               <div className="space-y-4">
                 {/* Price Chart */}
                 <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-[#00FFE5] animate-pulse" />
-                      <span className="font-mono text-xs text-white/70">Live · 1m candles</span>
+                      <span className="font-mono text-xs text-white/70">Live · 1m candles · {selectedPair.symbol}</span>
                     </div>
                     <div className="flex items-center gap-3 font-mono text-[10px] text-white/40">
-                      <span className="text-[#FF6B6B]">— Resistance {fmtXLM(recentHigh)}</span>
-                      <span className="text-[#4ade80]">— Support {fmtXLM(recentLow)}</span>
+                      <span className="text-[#FF6B6B]">— Resistance {fmtPrice(recentHigh)}</span>
+                      <span className="text-[#4ade80]">— Support {fmtPrice(recentLow)}</span>
                     </div>
                   </div>
-
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
@@ -346,42 +369,34 @@ export default function TradingPage() {
                           </linearGradient>
                         </defs>
                         <CartesianGrid stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
-                        <XAxis
-                          dataKey="ts"
-                          tick={{ fill: '#555', fontSize: 9 }}
-                          tickFormatter={(v: string) =>
-                            new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-                          }
-                        />
-                        <YAxis
-                          domain={['auto', 'auto']}
-                          tick={{ fill: '#555', fontSize: 9 }}
-                          tickFormatter={(v: number) => v.toFixed(4)}
-                          width={56}
-                        />
-                        <Tooltip
-                          contentStyle={{ background: '#0a0a14', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#fff' }}
+                        <XAxis dataKey="ts" tick={{ fill: '#555', fontSize: 9 }} tickFormatter={(v: string) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} />
+                        <YAxis domain={['auto', 'auto']} tick={{ fill: '#555', fontSize: 9 }} tickFormatter={(v: number) => fmtPrice(v)} width={72} />
+                        <Tooltip contentStyle={{ background: '#0a0a14', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#fff' }}
                           labelFormatter={(l) => new Date(String(l)).toLocaleTimeString([], { hour12: false })}
-                          formatter={(v: unknown) => [(v as number).toFixed(6), 'Price']}
-                        />
-                        {/* Breakout / resistance line */}
+                          formatter={(v: unknown) => [`$${fmtPrice(v as number)}`, 'Price']} />
                         <ReferenceLine y={recentHigh} stroke="#FF6B6B" strokeDasharray="5 3" strokeWidth={1.5} label={{ value: 'Resistance', fill: '#FF6B6B', fontSize: 9 }} />
-                        {/* Support line */}
                         <ReferenceLine y={recentLow} stroke="#4ade80" strokeDasharray="5 3" strokeWidth={1.5} label={{ value: 'Support', fill: '#4ade80', fontSize: 9 }} />
-                        {/* TP line */}
-                        {position?.tp && (
-                          <ReferenceLine y={position.tp} stroke="#FFB800" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'TP', fill: '#FFB800', fontSize: 9 }} />
-                        )}
-                        {/* SL line */}
-                        {position?.sl && (
-                          <ReferenceLine y={position.sl} stroke="#f87171" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'SL', fill: '#f87171', fontSize: 9 }} />
-                        )}
-                        {/* Liquidation line */}
-                        {position && (
-                          <ReferenceLine y={position.liquidationPrice} stroke="#dc2626" strokeWidth={1} strokeDasharray="2 4" label={{ value: 'LIQ', fill: '#dc2626', fontSize: 9 }} />
-                        )}
+                        {position?.tp && <ReferenceLine y={position.tp} stroke="#FFB800" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'TP', fill: '#FFB800', fontSize: 9 }} />}
+                        {position?.sl && <ReferenceLine y={position.sl} stroke="#f87171" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'SL', fill: '#f87171', fontSize: 9 }} />}
+                        {position && <ReferenceLine y={position.liquidationPrice} stroke="#dc2626" strokeWidth={1} strokeDasharray="2 4" label={{ value: 'LIQ', fill: '#dc2626', fontSize: 9 }} />}
                         <Area type="monotone" dataKey="price" stroke="#00FFE5" fill="url(#priceGrad)" strokeWidth={2} dot={false} />
                       </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Volume Bar */}
+                <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-4">
+                  <span className="font-mono text-[10px] text-gray-600 block mb-2">Volume</span>
+                  <div className="h-20">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 0, right: 5, bottom: 0, left: 0 }}>
+                        <Bar dataKey="volume" fill="rgba(0,255,229,0.25)" radius={[2, 2, 0, 0]} />
+                        <XAxis dataKey="ts" hide />
+                        <YAxis hide />
+                        <Tooltip contentStyle={{ background: '#0a0a14', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }}
+                          formatter={(v: unknown) => [Number(v).toLocaleString(), 'Volume']} labelFormatter={() => ''} />
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -390,24 +405,19 @@ export default function TradingPage() {
                 {position ? (
                   <div className="rounded-2xl border border-[rgba(0,255,229,0.18)] bg-[rgba(0,255,229,0.03)] p-5">
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-syne text-sm font-bold text-white">Open Position</h3>
-                      <button
-                        onClick={closePosition}
-                        className="px-3 py-1 text-xs font-mono border border-red-700 text-red-400 rounded hover:bg-red-900/30 transition-all"
-                      >
-                        Close Position
-                      </button>
+                      <h3 className="font-syne text-sm font-bold text-white">Open Position · {position.pair.toUpperCase()}</h3>
+                      <button onClick={closePosition} className="px-3 py-1 text-xs font-mono border border-red-700 text-red-400 rounded hover:bg-red-900/30 transition-all">Close Position</button>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs">
                       {[
                         { label: 'Side', value: position.side.toUpperCase(), color: position.side === 'long' ? 'text-[#4ade80]' : 'text-red-400' },
-                        { label: 'Entry', value: fmtXLM(position.entryPrice), color: 'text-white' },
-                        { label: 'Size', value: `${fmtXLM(position.size)} XLM`, color: 'text-white' },
+                        { label: 'Entry', value: `$${fmtPrice(position.entryPrice)}`, color: 'text-white' },
+                        { label: 'Size', value: String(position.size), color: 'text-white' },
                         { label: 'Leverage', value: `${position.leverage}×`, color: 'text-[#FFB800]' },
-                        { label: 'Collateral', value: `${fmtXLM(position.collateral)} XLM`, color: 'text-white' },
-                        { label: 'Unrealised PnL', value: `${position.unrealisedPnl >= 0 ? '+' : ''}${fmtXLM(position.unrealisedPnl)} XLM`, color: position.unrealisedPnl >= 0 ? 'text-[#4ade80]' : 'text-red-400' },
-                        { label: 'TP', value: position.tp ? fmtXLM(position.tp) : '—', color: 'text-[#FFB800]' },
-                        { label: 'SL', value: position.sl ? fmtXLM(position.sl) : '—', color: 'text-red-400' },
+                        { label: 'Collateral', value: `${position.collateral} XLM`, color: 'text-white' },
+                        { label: 'Unrealised PnL', value: `${position.unrealisedPnl >= 0 ? '+' : ''}$${fmtPrice(position.unrealisedPnl)}`, color: position.unrealisedPnl >= 0 ? 'text-[#4ade80]' : 'text-red-400' },
+                        { label: 'TP', value: position.tp ? `$${fmtPrice(position.tp)}` : '—', color: 'text-[#FFB800]' },
+                        { label: 'SL', value: position.sl ? `$${fmtPrice(position.sl)}` : '—', color: 'text-red-400' },
                       ].map((s) => (
                         <div key={s.label} className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.04]">
                           <div className="text-gray-500 mb-1">{s.label}</div>
@@ -417,310 +427,161 @@ export default function TradingPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-white/[0.06] bg-white/[0.01] p-4 text-center font-mono text-xs text-white/30">
-                    No open position · Place a market order to open
-                  </div>
+                  <div className="rounded-2xl border border-white/[0.06] bg-white/[0.01] p-4 text-center font-mono text-xs text-white/30">No open position · Place a market order to open</div>
                 )}
 
                 {/* Order History */}
                 <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5">
                   <h3 className="font-syne text-sm font-bold text-white mb-3">Order History</h3>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[520px] font-mono text-xs">
+                    <table className="w-full min-w-[600px] font-mono text-xs">
                       <thead>
                         <tr className="border-b border-white/[0.06] text-left text-gray-600">
-                          <th className="py-1.5 pr-3">ID</th>
-                          <th className="py-1.5 pr-3">Side</th>
-                          <th className="py-1.5 pr-3">Type</th>
-                          <th className="py-1.5 pr-3">Amount</th>
-                          <th className="py-1.5 pr-3">Price</th>
-                          <th className="py-1.5 pr-3">Status</th>
-                          <th className="py-1.5">Time</th>
+                          {['ID', 'Pair', 'Side', 'Type', 'Amount', 'Price', 'Status', 'Time'].map((h) => <th key={h} className="py-1.5 pr-3">{h}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {orders.length === 0 ? (
-                          <tr><td colSpan={7} className="py-4 text-center text-white/30">No orders yet</td></tr>
-                        ) : (
-                          orders.map((o) => (
-                            <tr key={o.id} className="border-b border-white/[0.03]">
-                              <td className="py-1.5 pr-3 text-white/60">{o.id}</td>
-                              <td className={`py-1.5 pr-3 ${o.side === 'buy' ? 'text-[#4ade80]' : 'text-red-400'}`}>{o.side.toUpperCase()}</td>
-                              <td className="py-1.5 pr-3 text-white/60">{o.type}</td>
-                              <td className="py-1.5 pr-3 text-white">{fmtXLM(o.amount)}</td>
-                              <td className="py-1.5 pr-3 text-[#FFB800]">{fmtXLM(o.price)}</td>
-                              <td className="py-1.5 pr-3">
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] border ${
-                                  o.status === 'filled' ? 'bg-[rgba(74,222,128,0.1)] border-green-800 text-[#4ade80]'
-                                  : o.status === 'open' ? 'bg-[rgba(0,255,229,0.08)] border-[rgba(0,255,229,0.3)] text-[#00FFE5]'
-                                  : 'bg-red-900/20 border-red-900 text-red-400'
-                                }`}>{o.status}</span>
-                              </td>
-                              <td className="py-1.5 text-white/40">{new Date(o.timestamp).toLocaleTimeString([], { hour12: false })}</td>
-                            </tr>
-                          ))
-                        )}
+                          <tr><td colSpan={8} className="py-4 text-center text-white/30">No orders yet</td></tr>
+                        ) : orders.map((o) => (
+                          <tr key={o.id} className="border-b border-white/[0.03]">
+                            <td className="py-1.5 pr-3 text-white/60">{o.id}</td>
+                            <td className="py-1.5 pr-3 text-[#00FFE5]">{o.pair}</td>
+                            <td className={`py-1.5 pr-3 ${o.side === 'buy' ? 'text-[#4ade80]' : 'text-red-400'}`}>{o.side.toUpperCase()}</td>
+                            <td className="py-1.5 pr-3 text-white/60">{o.type}</td>
+                            <td className="py-1.5 pr-3 text-white">{o.amount}</td>
+                            <td className="py-1.5 pr-3 text-[#FFB800]">${fmtPrice(o.price)}</td>
+                            <td className="py-1.5 pr-3">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] border ${o.status === 'filled' ? 'bg-[rgba(74,222,128,0.1)] border-green-800 text-[#4ade80]' : o.status === 'open' ? 'bg-[rgba(0,255,229,0.08)] border-[rgba(0,255,229,0.3)] text-[#00FFE5]' : 'bg-red-900/20 border-red-900 text-red-400'}`}>{o.status}</span>
+                            </td>
+                            <td className="py-1.5 text-white/40">{new Date(o.timestamp).toLocaleTimeString([], { hour12: false })}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
               </div>
 
-              {/* Right: Order panel */}
+              {/* Right: Order Panel */}
               <div className="space-y-4">
-                {/* TVL card */}
                 <div className="rounded-2xl border border-[rgba(0,255,229,0.12)] bg-[rgba(0,255,229,0.03)] p-4">
-                  <div className="font-mono text-[10px] text-gray-500 mb-1">Total Value Locked (Stellar DEX)</div>
-                  <div className="font-syne text-2xl font-bold text-[#00FFE5]">${fmtUSD(tvl)}</div>
-                  <div className="font-mono text-xs text-gray-500 mt-1">XLM / USDC Pool · {network}</div>
+                  <div className="font-mono text-[10px] text-gray-500 mb-1">{selectedPair.name} · Live</div>
+                  <div className={`font-syne text-2xl font-bold text-[#00FFE5] ${pricesLoading ? 'animate-pulse' : ''}`}>${fmtPrice(currentPrice)}</div>
+                  <div className={`font-mono text-xs mt-1 ${isUp ? 'text-[#4ade80]' : 'text-red-400'}`}>{isUp ? '▲' : '▼'} {Math.abs(priceChange24h).toFixed(2)}% 24h</div>
+                  {walletBalance && <div className="font-mono text-[10px] text-gray-500 mt-2 border-t border-white/[0.06] pt-2">Wallet: <span className="text-[#FFB800]">{parseFloat(walletBalance).toFixed(2)} XLM</span></div>}
                 </div>
 
-                {/* Buy/Sell toggle */}
                 <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-4 space-y-4">
                   <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-white/[0.04]">
-                    <button
-                      onClick={() => setOrderSide('buy')}
-                      className={`py-2 text-xs font-mono rounded-md font-bold transition-all ${
-                        orderSide === 'buy' ? 'bg-[#4ade80] text-black' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      Buy / Long
-                    </button>
-                    <button
-                      onClick={() => setOrderSide('sell')}
-                      className={`py-2 text-xs font-mono rounded-md font-bold transition-all ${
-                        orderSide === 'sell' ? 'bg-red-500 text-white' : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      Sell / Short
-                    </button>
+                    <button onClick={() => setOrderSide('buy')} className={`py-2 text-xs font-mono rounded-md font-bold transition-all ${orderSide === 'buy' ? 'bg-[#4ade80] text-black' : 'text-gray-500 hover:text-gray-300'}`}>Buy / Long</button>
+                    <button onClick={() => setOrderSide('sell')} className={`py-2 text-xs font-mono rounded-md font-bold transition-all ${orderSide === 'sell' ? 'bg-red-500 text-white' : 'text-gray-500 hover:text-gray-300'}`}>Sell / Short</button>
                   </div>
-
-                  {/* Market / Limit */}
                   <div className="grid grid-cols-2 gap-2">
                     {(['market', 'limit'] as const).map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setOrderType(t)}
-                        className={`py-1.5 text-xs font-mono rounded border transition-all ${
-                          orderType === t
-                            ? 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]'
-                            : 'border-white/10 text-gray-500'
-                        }`}
-                      >
-                        {t.charAt(0).toUpperCase() + t.slice(1)}
-                      </button>
+                      <button key={t} onClick={() => setOrderType(t)} className={`py-1.5 text-xs font-mono rounded border transition-all ${orderType === t ? 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]' : 'border-white/10 text-gray-500'}`}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
                     ))}
                   </div>
-
-                  {/* Amount */}
                   <div>
-                    <label className="block text-[10px] font-mono text-gray-500 mb-1">Amount (XLM)</label>
-                    <input
-                      value={orderAmount}
-                      onChange={(e) => setOrderAmount(e.target.value)}
-                      type="number"
-                      min="1"
-                      className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-sm font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]"
-                    />
+                    <label className="block text-[10px] font-mono text-gray-500 mb-1">Amount</label>
+                    <input value={orderAmount} onChange={(e) => setOrderAmount(e.target.value)} type="number" min="1" className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-sm font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]" />
                   </div>
-
-                  {/* Limit price */}
                   {orderType === 'limit' && (
                     <div>
-                      <label className="block text-[10px] font-mono text-gray-500 mb-1">Limit Price</label>
-                      <input
-                        value={limitPrice}
-                        onChange={(e) => setLimitPrice(e.target.value)}
-                        type="number"
-                        placeholder={priceFmt}
-                        className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-sm font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]"
-                      />
+                      <label className="block text-[10px] font-mono text-gray-500 mb-1">Limit Price ($)</label>
+                      <input value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} type="number" placeholder={fmtPrice(currentPrice)} className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-sm font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]" />
                     </div>
                   )}
-
-                  {/* Collateral */}
                   <div>
                     <label className="block text-[10px] font-mono text-gray-500 mb-1">Collateral (XLM)</label>
-                    <input
-                      value={collateral}
-                      onChange={(e) => setCollateral(e.target.value)}
-                      type="number"
-                      min="1"
-                      className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-sm font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]"
-                    />
+                    <input value={collateral} onChange={(e) => setCollateral(e.target.value)} type="number" min="1" className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-sm font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]" />
                   </div>
-
-                  {/* Leverage */}
                   <div>
-                    <div className="flex justify-between text-[10px] font-mono text-gray-500 mb-1">
-                      <span>Leverage</span><span className="text-[#FFB800]">{leverage}×</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={10}
-                      value={leverage}
-                      onChange={(e) => setLeverage(Number(e.target.value))}
-                      className="w-full accent-[#FFB800]"
-                    />
-                    <div className="flex justify-between text-[9px] font-mono text-gray-600 mt-0.5">
-                      <span>1×</span><span>5×</span><span>10×</span>
-                    </div>
+                    <div className="flex justify-between text-[10px] font-mono text-gray-500 mb-1"><span>Leverage</span><span className="text-[#FFB800]">{leverage}×</span></div>
+                    <input type="range" min={1} max={10} value={leverage} onChange={(e) => setLeverage(Number(e.target.value))} className="w-full accent-[#FFB800]" />
+                    <div className="flex justify-between text-[9px] font-mono text-gray-600 mt-0.5"><span>1×</span><span>5×</span><span>10×</span></div>
                   </div>
-
-                  {/* TP / SL */}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] font-mono text-[#FFB800] mb-1">Take Profit</label>
-                      <input
-                        value={tpPrice}
-                        onChange={(e) => setTpPrice(e.target.value)}
-                        type="number"
-                        placeholder="0.0000"
-                        className="w-full px-2 py-1.5 bg-white/[0.03] border border-[rgba(255,184,0,0.2)] rounded text-white text-xs font-mono focus:outline-none focus:border-[rgba(255,184,0,0.5)]"
-                      />
+                      <label className="block text-[10px] font-mono text-[#FFB800] mb-1">Take Profit ($)</label>
+                      <input value={tpPrice} onChange={(e) => setTpPrice(e.target.value)} type="number" placeholder="0.00" className="w-full px-2 py-1.5 bg-white/[0.03] border border-[rgba(255,184,0,0.2)] rounded text-white text-xs font-mono focus:outline-none focus:border-[rgba(255,184,0,0.5)]" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-mono text-red-400 mb-1">Stop Loss</label>
-                      <input
-                        value={slPrice}
-                        onChange={(e) => setSlPrice(e.target.value)}
-                        type="number"
-                        placeholder="0.0000"
-                        className="w-full px-2 py-1.5 bg-white/[0.03] border border-red-900/40 rounded text-white text-xs font-mono focus:outline-none focus:border-red-600"
-                      />
+                      <label className="block text-[10px] font-mono text-red-400 mb-1">Stop Loss ($)</label>
+                      <input value={slPrice} onChange={(e) => setSlPrice(e.target.value)} type="number" placeholder="0.00" className="w-full px-2 py-1.5 bg-white/[0.03] border border-red-900/40 rounded text-white text-xs font-mono focus:outline-none focus:border-red-600" />
                     </div>
                   </div>
-
-                  {/* Agent selector */}
                   <div>
                     <label className="block text-[10px] font-mono text-gray-500 mb-1">Run via Agent (optional)</label>
-                    <select
-                      value={selectedAgent || ''}
-                      onChange={(e) => setSelectedAgent(e.target.value || null)}
-                      className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-xs font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]"
-                    >
+                    <select value={selectedAgent || ''} onChange={(e) => setSelectedAgent(e.target.value || null)} className="w-full px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white text-xs font-mono focus:outline-none focus:border-[rgba(0,255,229,0.4)]">
                       <option value="">Manual (no agent)</option>
-                      {AGENT_TEMPLATES.map((a) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
+                      {AGENT_TEMPLATES.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
-                    {selectedAgent && (
-                      <div className="mt-1.5 font-mono text-[9px] text-gray-500">
-                        +{AGENT_TEMPLATES.find((a) => a.id === selectedAgent)?.priceXlm} XLM agent fee · 0x402
-                      </div>
-                    )}
+                    {selectedAgent && <div className="mt-1.5 font-mono text-[9px] text-gray-500">+{AGENT_TEMPLATES.find((a) => a.id === selectedAgent)?.priceXlm} XLM agent fee · 0x402</div>}
                   </div>
-
-                  {/* Errors / success */}
                   <AnimatePresence>
-                    {orderError && (
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="p-2.5 rounded bg-red-900/20 border border-red-900 text-red-400 text-xs font-mono">
-                        {orderError}
-                      </motion.div>
-                    )}
-                    {orderSuccess && (
-                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="p-2.5 rounded bg-[rgba(74,222,128,0.08)] border border-green-800 text-[#4ade80] text-xs font-mono">
-                        ✓ {orderSuccess}
-                      </motion.div>
-                    )}
+                    {orderError && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-2.5 rounded bg-red-900/20 border border-red-900 text-red-400 text-xs font-mono">{orderError}</motion.div>}
+                    {orderSuccess && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-2.5 rounded bg-[rgba(74,222,128,0.08)] border border-green-800 text-[#4ade80] text-xs font-mono">✓ {orderSuccess}</motion.div>}
                   </AnimatePresence>
-
-                  <button
-                    onClick={submitOrder}
-                    className={`w-full py-3 font-mono text-sm rounded-lg font-bold transition-all ${
-                      orderSide === 'buy'
-                        ? 'bg-[#4ade80] text-black hover:bg-[#22c55e]'
-                        : 'bg-red-500 text-white hover:bg-red-600'
-                    }`}
-                  >
+                  <button onClick={submitOrder} className={`w-full py-3 font-mono text-sm rounded-lg font-bold transition-all ${orderSide === 'buy' ? 'bg-[#4ade80] text-black hover:bg-[#22c55e]' : 'bg-red-500 text-white hover:bg-red-600'}`}>
                     {orderSide === 'buy' ? '▲ Buy / Long' : '▼ Sell / Short'} {leverage > 1 ? `(${leverage}×)` : ''}
                   </button>
-
-                  <div className="font-mono text-[9px] text-gray-600 text-center">
-                    {network === 'testnet' ? '⚠ Testnet — no real funds' : '🌐 Mainnet — real XLM'} · Stellar Horizon
-                  </div>
+                  <div className="font-mono text-[9px] text-gray-600 text-center">{network === 'testnet' ? '⚠ Testnet — no real funds' : '🌐 Mainnet — real XLM'} · Stellar Horizon</div>
                 </div>
               </div>
             </motion.div>
           )}
 
           {activeTab === 'agents' && (
-            <motion.div
-              key="agents"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="space-y-6"
-            >
-              <p className="font-mono text-sm text-gray-400">
-                Select an agent SDK template to automate your trading strategy. Each call is metered via the 0x402 protocol and costs a small XLM fee.
-              </p>
+            <motion.div key="agents" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="font-mono text-sm text-gray-400 flex-1">Select an agent template to automate your trading strategy. Each call is metered via the 0x402 protocol.</p>
+                <div className="flex gap-2 flex-wrap">
+                  {['all', 'strategy', 'arbitrage', 'mev', 'monitor'].map((cat) => (
+                    <button key={cat} onClick={() => setAgentCategory(cat)} className={`px-3 py-1 text-[10px] font-mono rounded-full border transition-all ${agentCategory === cat ? 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]' : 'border-white/10 text-gray-500 hover:text-gray-300'}`}>
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {AGENT_TEMPLATES.map((agent) => (
-                  <motion.div
-                    key={agent.id}
-                    whileHover={{ y: -4, boxShadow: '0 0 24px rgba(0,255,229,0.08)' }}
-                    className="rounded-xl border border-[rgba(0,255,229,0.12)] bg-[rgba(255,255,255,0.03)] p-5 flex flex-col gap-3"
-                  >
+                {filteredAgents.map((agent) => (
+                  <motion.div key={agent.id} whileHover={{ y: -4, boxShadow: '0 0 24px rgba(0,255,229,0.08)' }}
+                    className="rounded-xl border border-[rgba(0,255,229,0.12)] bg-[rgba(255,255,255,0.03)] p-5 flex flex-col gap-3">
                     <div>
-                      <h3 className="font-syne font-bold text-white">{agent.name}</h3>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-syne font-bold text-white text-sm">{agent.name}</h3>
+                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[agent.category] ?? ''}`}>{agent.category}</span>
+                      </div>
                       <p className="text-gray-400 text-xs mt-1">{agent.description}</p>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {agent.tags.map((t) => (
-                        <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(0,255,229,0.06)] text-[#00FFE5] border border-[rgba(0,255,229,0.15)]">
-                          #{t}
-                        </span>
-                      ))}
+                      {agent.tags.map((t) => <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(0,255,229,0.06)] text-[#00FFE5] border border-[rgba(0,255,229,0.15)]">#{t}</span>)}
                     </div>
                     <div className="flex items-center justify-between mt-auto">
                       <span className="font-mono text-xs text-[#FFB800]">{agent.priceXlm} XLM/req</span>
-                      <button
-                        onClick={() => { setSelectedAgent(agent.id); setActiveTab('chart'); }}
-                        className="px-3 py-1 text-xs font-mono border border-[#00FFE5] text-[#00FFE5] rounded hover:bg-[#00FFE5] hover:text-black transition-all"
-                      >
-                        Use Template
-                      </button>
+                      <button onClick={() => { setSelectedAgent(agent.id); setActiveTab('chart'); }} className="px-3 py-1 text-xs font-mono border border-[#00FFE5] text-[#00FFE5] rounded hover:bg-[#00FFE5] hover:text-black transition-all">Use</button>
                     </div>
                   </motion.div>
                 ))}
               </div>
-
-              {/* SDK snippet */}
               <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5">
                 <h3 className="font-syne text-sm font-bold text-white mb-3">SDK Quick-Start (0x402)</h3>
-                <pre className="font-mono text-xs text-[#00FFE5] overflow-x-auto whitespace-pre-wrap leading-relaxed">{`// Install: npm install @stellar/stellar-sdk ably
-
-const agentId  = '${selectedAgent ?? AGENT_TEMPLATES[0].id}';
-const endpoint = \`https://agentforge.dev/api/agents/\${agentId}/run\`;
-
-// 1. Request the agent (will return 402 if price_xlm > 0)
-const res = await fetch(endpoint, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ input: 'Analyse XLM/USDC breakout now' }),
+                <pre className="font-mono text-xs text-[#00FFE5] overflow-x-auto whitespace-pre-wrap leading-relaxed">{`// npm install @stellar/stellar-sdk ably
+const agentId = '${selectedAgent ?? AGENT_TEMPLATES[0].id}';
+const res = await fetch(\`https://agentforge.dev/api/agents/\${agentId}/run\`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ input: 'Analyse ${selectedPair.symbol} breakout' }),
 });
-
 if (res.status === 402) {
   const { payment_details } = await res.json();
-  // 2. Sign & submit XLM payment via Freighter
-  const txHash = await signAndSubmit(payment_details);
-  // 3. Retry with payment proof
-  const paid = await fetch(endpoint, {
+  const txHash = await signAndSubmitXLM(payment_details);
+  const paid = await fetch(\`https://agentforge.dev/api/agents/\${agentId}/run\`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Payment-Tx-Hash': txHash,
-      'X-Payment-Wallet': myWallet,
-    },
-    body: JSON.stringify({ input: 'Analyse XLM/USDC breakout now' }),
+    headers: { 'Content-Type': 'application/json', 'X-Payment-Tx-Hash': txHash, 'X-Payment-Wallet': myWallet },
+    body: JSON.stringify({ input: 'Analyse ${selectedPair.symbol} breakout' }),
   });
-  const { output } = await paid.json();
-  console.log(output);
+  console.log((await paid.json()).output);
 }`}</pre>
               </div>
             </motion.div>
