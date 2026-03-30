@@ -199,15 +199,14 @@ export default function TradingPage() {
     return () => { if (priceIntervalRef.current) clearInterval(priceIntervalRef.current); };
   }, [fetchPrices]);
 
-  // Seed candles when pair changes
+  // Seed candles when pair changes (use FALLBACK_PRICES directly to avoid stale closure on currentPrice)
   useEffect(() => {
-    const base = currentPrice || FALLBACK_PRICES[selectedPair.coinGeckoId] || 1;
+    const base = FALLBACK_PRICES[selectedPair.coinGeckoId] || 1;
     setCandles(generateHistory(base, 60));
     setPosition(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPairId]);
+  }, [selectedPairId, selectedPair.coinGeckoId]);
 
-  // Live price tick simulation
+  // Live price tick simulation — restart whenever candles are seeded or pair changes
   useEffect(() => {
     if (tickerRef.current) clearInterval(tickerRef.current);
     if (!candles.length) return;
@@ -225,7 +224,7 @@ export default function TradingPage() {
     }, 2000);
     return () => { if (tickerRef.current) clearInterval(tickerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles.length > 0, selectedPairId]);
+  }, [candles.length, selectedPairId]);
 
   // Load wallet balance
   useEffect(() => {

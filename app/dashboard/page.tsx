@@ -274,7 +274,8 @@ export default function DashboardPage() {
                       <YAxis tick={{ fill: '#8a8a93', fontSize: 10 }} />
                       <Tooltip
                         formatter={(value: unknown, name: unknown) => {
-                          const n = typeof value === 'number' ? value : Number(value || 0);
+                          const raw = Array.isArray(value) ? value[0] : value;
+                          const n = typeof raw === 'number' ? raw : Number(raw || 0);
                           return [`${n.toFixed(4)} XLM`, name === 'cumulative' ? 'Total PnL' : 'Daily Earned'];
                         }}
                         contentStyle={{ background: '#0a0a10', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, color: '#fff' }} />
