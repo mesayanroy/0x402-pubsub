@@ -334,6 +334,115 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Traders Portfolio */}
+          <div className="p-5 rounded-2xl border border-[rgba(0,255,229,0.1)] bg-[rgba(0,255,229,0.02)]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-syne text-lg font-bold text-white">Traders Portfolio</h3>
+                <p className="font-mono text-[10px] text-gray-500 mt-0.5">Real-time P&amp;L per transaction · agent strategy tracking</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${feedConnected ? 'bg-[#00FFE5] animate-pulse' : 'bg-amber-400'}`} />
+                <span className="font-mono text-[10px] text-gray-500">{feedConnected ? 'live' : 'offline'}</span>
+              </div>
+            </div>
+
+            {/* Portfolio summary row */}
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="rounded-xl border border-[rgba(74,222,128,0.2)] bg-[rgba(74,222,128,0.04)] p-3 text-center">
+                <div className="font-syne text-xl font-bold text-[#4ade80]">+{totalEarned.toFixed(4)}</div>
+                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Total Profit (XLM)</div>
+                {totalEarnedUsd && <div className="font-mono text-[10px] text-[#4ade80]/70">≈ ${totalEarnedUsd.toFixed(2)}</div>}
+              </div>
+              <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-3 text-center">
+                <div className="font-syne text-xl font-bold text-[#FFB800]">{paidRequests}</div>
+                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Paid Trades</div>
+              </div>
+              <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-3 text-center">
+                <div className="font-syne text-xl font-bold text-purple-400">
+                  {paidRequests > 0 ? (totalEarned / paidRequests).toFixed(4) : '0.0000'}
+                </div>
+                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Avg per Trade (XLM)</div>
+              </div>
+            </div>
+
+            {/* Trade rows */}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px]">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    {['#', 'Agent / Strategy', 'Model', 'P&L (XLM)', 'Tx', 'Time'].map((h) => (
+                      <th key={h} className="py-2 pr-4 text-left font-mono text-[10px] text-gray-500 uppercase">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(analytics?.invoices || []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center font-mono text-xs text-white/30">
+                        No trades yet — run a paid agent request to populate the portfolio.
+                      </td>
+                    </tr>
+                  )}
+                  {(analytics?.invoices || []).map((row, idx) => (
+                    <tr key={row.invoiceId} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-gray-600">{idx + 1}</td>
+                      <td className="py-2.5 pr-4">
+                        <div className="font-mono text-xs text-white">{row.agentName}</div>
+                        <div className="font-mono text-[9px] text-gray-600 mt-0.5">via 0x402 protocol</div>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono border ${
+                          row.model === 'openai-gpt4o-mini'
+                            ? 'border-[rgba(0,255,229,0.3)] text-[#00FFE5] bg-[rgba(0,255,229,0.06)]'
+                            : 'border-purple-800 text-purple-400 bg-purple-900/20'
+                        }`}>
+                          {modelName(row.model)}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className="font-mono text-xs text-[#4ade80] font-bold">+{row.amountXlm.toFixed(4)}</span>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <a
+                          href={row.txExplorerUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-[10px] text-[#FFB800] hover:underline"
+                        >
+                          {row.txHash ? `${row.txHash.slice(0, 8)}…` : '—'}
+                        </a>
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-white/40">
+                        {new Date(row.createdAt).toLocaleTimeString([], { hour12: false })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Live new trades from Ably */}
+            {(() => {
+              const liveTrades = myLiveEvents.filter((e) => (e.priceXlm ?? 0) > 0).slice(0, 5);
+              if (liveTrades.length === 0) return null;
+              return (
+                <div className="mt-4 pt-4 border-t border-white/[0.06]">
+                  <p className="font-mono text-[10px] text-gray-500 mb-2 uppercase tracking-widest">New (live)</p>
+                  {liveTrades.map((ev, idx) => (
+                    <div key={`live-${idx}`} className="flex items-center justify-between py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00FFE5] animate-pulse shrink-0" />
+                        <span className="font-mono text-xs text-white/70">{ev.agentName}</span>
+                      </div>
+                      <span className="font-mono text-xs text-[#4ade80]">+{(ev.priceXlm ?? 0).toFixed(4)} XLM</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+
           {/* Invoice Stream */}
           <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)]">
             <div className="flex items-center justify-between mb-3">

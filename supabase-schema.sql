@@ -1,20 +1,25 @@
 -- ================================================
 -- AgentForge Database Schema (Supabase / PostgreSQL)
+-- Run this in the Supabase SQL editor to initialise the database.
+-- All statements are idempotent (IF NOT EXISTS) so the script can be
+-- re-run safely at any time.
 -- ================================================
 
 -- Users / Wallet Owners
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  wallet_address TEXT UNIQUE NOT NULL,  -- Stellar public key (G...)
+  wallet_address TEXT UNIQUE NOT NULL,
   username TEXT,
   bio TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- Agents
-CREATE TABLE agents (
+-- NOTE: owner_wallet is stored as plain TEXT (no FK to users) to avoid
+-- insertion-ordering failures on serverless deployments.
+CREATE TABLE IF NOT EXISTS agents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_wallet TEXT NOT NULL REFERENCES users(wallet_address),
+  owner_wallet TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   tags TEXT[],
@@ -23,7 +28,7 @@ CREATE TABLE agents (
   tools JSONB DEFAULT '[]',
   price_xlm NUMERIC(10,4) DEFAULT 0.01,
   visibility TEXT DEFAULT 'public' CHECK (visibility IN ('public', 'private', 'forked')),
-  forked_from UUID REFERENCES agents(id),
+  forked_from UUID,
   api_endpoint TEXT,
   api_key TEXT,
   soroban_contract_id TEXT,
@@ -36,9 +41,9 @@ CREATE TABLE agents (
 );
 
 -- Agent Requests (per-request log for 0x402)
-CREATE TABLE agent_requests (
+CREATE TABLE IF NOT EXISTS agent_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id UUID NOT NULL REFERENCES agents(id),
+  agent_id UUID NOT NULL,
   caller_wallet TEXT,
   caller_ip TEXT,
   input_payload JSONB,
@@ -53,10 +58,10 @@ CREATE TABLE agent_requests (
 );
 
 -- Invoice Ledger (one row per paid request)
-CREATE TABLE invoices (
+CREATE TABLE IF NOT EXISTS invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  request_id UUID UNIQUE REFERENCES agent_requests(id),
-  agent_id UUID NOT NULL REFERENCES agents(id),
+  request_id UUID UNIQUE,
+  agent_id UUID NOT NULL,
   owner_wallet TEXT NOT NULL,
   caller_wallet TEXT,
   amount_xlm NUMERIC(12,4) NOT NULL,
@@ -67,18 +72,18 @@ CREATE TABLE invoices (
 );
 
 -- Forks
-CREATE TABLE agent_forks (
+CREATE TABLE IF NOT EXISTS agent_forks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  original_agent_id UUID REFERENCES agents(id),
-  forked_agent_id UUID REFERENCES agents(id),
+  original_agent_id UUID,
+  forked_agent_id UUID,
   forked_by_wallet TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- API Keys
-CREATE TABLE api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id UUID REFERENCES agents(id),
+  agent_id UUID,
   owner_wallet TEXT,
   key_hash TEXT UNIQUE NOT NULL,
   label TEXT,
@@ -87,15 +92,20 @@ CREATE TABLE api_keys (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Indexes
-CREATE INDEX idx_agents_owner ON agents(owner_wallet);
-CREATE INDEX idx_agents_visibility ON agents(visibility) WHERE is_active = true;
-CREATE INDEX idx_agent_requests_agent ON agent_requests(agent_id);
-CREATE INDEX idx_agent_requests_created ON agent_requests(created_at DESC);
-CREATE INDEX idx_agent_requests_tx_hash ON agent_requests(payment_tx_hash);
-CREATE INDEX idx_invoices_owner_created ON invoices(owner_wallet, created_at DESC);
-CREATE INDEX idx_api_keys_hash ON api_keys(key_hash) WHERE is_active = true;
+-- Indexes (idempotent)
+CREATE INDEX IF NOT EXISTS idx_agents_owner ON agents(owner_wallet);
+CREATE INDEX IF NOT EXISTS idx_agents_visibility ON agents(visibility) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_agent_requests_agent ON agent_requests(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_requests_created ON agent_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_requests_tx_hash ON agent_requests(payment_tx_hash);
+CREATE INDEX IF NOT EXISTS idx_invoices_owner_created ON invoices(owner_wallet, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash) WHERE is_active = true;
 
--- Row Level Security (optional — enable for user-scoped access)
--- ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE agent_requests ENABLE ROW LEVEL SECURITY;
+-- ─── Row Level Security ───────────────────────────────────────────────────────
+-- Disable RLS so the server-side service-role key can read/write freely.
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE agents DISABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_requests DISABLE ROW LEVEL SECURITY;
+ALTER TABLE invoices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_forks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE api_keys DISABLE ROW LEVEL SECURITY;

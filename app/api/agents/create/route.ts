@@ -12,10 +12,9 @@ function isMissingTableError(error: { message?: string; code?: string } | null |
   if (!error) return false;
   const message = (error.message || '').toLowerCase();
   return message.includes("could not find the table 'public.agents'")
-    || message.includes("could not find the table 'public.users'")
     || message.includes('relation "public.agents" does not exist')
-    || message.includes('relation "public.users" does not exist')
-    || error.code === 'PGRST205';
+    || error.code === 'PGRST205'
+    || error.code === '42P01';
 }
 
 function getSupabase() {
@@ -68,70 +67,9 @@ export async function POST(req: NextRequest) {
     const apiEndpoint = `${origin}/api/agents/${agentId}/run`;
 
     const canUseSupabase = Boolean(supabaseUrl && supabaseWriteKey);
-    const supabase = canUseSupabase ? getSupabase() : null;
 
-    const ensureUser = async () => {
-      if (!supabase) return { message: 'Supabase not configured', code: 'NO_SUPABASE' };
-
-      const upsertRes = await supabase
-        .from('users')
-        .upsert({ wallet_address: owner_wallet }, { onConflict: 'wallet_address' });
-
-      // Some DBs may miss a unique constraint on wallet_address; fallback to insert.
-      if (upsertRes.error?.code === '42P10') {
-        const insertRes = await supabase
-          .from('users')
-          .insert({ wallet_address: owner_wallet });
-
-        if (insertRes.error && insertRes.error.code !== '23505') {
-          return insertRes.error;
-        }
-        return null;
-      }
-
-      if (upsertRes.error && upsertRes.error.code !== '23505') {
-        return upsertRes.error;
-      }
-
-      return null;
-    };
-
-    const insertAgent = async () => {
-      if (!supabase) return { data: null, error: { message: 'Supabase not configured', code: 'NO_SUPABASE' } };
-
-      return supabase.from('agents').insert({
-        id: agentId,
-        owner_wallet,
-        name,
-        description,
-        tags: tags || [],
-        model,
-        system_prompt,
-        tools: tools || [],
-        price_xlm: parseFloat(price_xlm) || 0.01,
-        visibility: visibility || 'public',
-        api_endpoint: apiEndpoint,
-        api_key: apiKey,
-      });
-    };
-
-    const userError = await ensureUser();
-    if (userError && !isMissingTableError(userError) && userError.code !== 'NO_SUPABASE') {
-      console.error('Supabase user upsert error:', userError);
-    }
-
-    let { error: agentError } = await insertAgent();
-
-    // Retry once when FK fails due owner row race/order issues.
-    if (agentError?.code === '23503') {
-      const retryUserError = await ensureUser();
-      if (retryUserError) {
-        console.error('Supabase user upsert retry error:', retryUserError);
-      }
-      ({ error: agentError } = await insertAgent());
-    }
-
-    if (agentError && (agentError.code === 'NO_SUPABASE' || isMissingTableError(agentError))) {
+    if (!canUseSupabase) {
+      // Supabase not configured – use local demo store
       upsertDemoAgent({
         id: agentId,
         owner_wallet,
@@ -146,35 +84,83 @@ export async function POST(req: NextRequest) {
         api_endpoint: apiEndpoint,
         api_key: apiKey,
       });
-
       return NextResponse.json({
         id: agentId,
         api_key: apiKey,
         api_endpoint: apiEndpoint,
-        message: 'Agent deployed using fallback storage (Supabase tables not found)',
+        message: 'Agent deployed (local demo mode – configure Supabase env vars to persist)',
         storage_mode: 'demo_fallback',
-        warning: 'Apply supabase-schema.sql to persist agents in database',
       });
     }
 
+    const supabase = getSupabase();
+
+    // Also upsert wallet into users table (best-effort; failures are non-fatal
+    // because agents table no longer has an FK to users).
+    try {
+      await supabase
+        .from('users')
+        .upsert({ wallet_address: owner_wallet }, { onConflict: 'wallet_address' });
+    } catch (err) {
+      // Non-fatal: users table may not exist yet
+      console.debug('[create] User upsert skipped:', err);
+    }
+
+    const { error: agentError } = await supabase.from('agents').insert({
+      id: agentId,
+      owner_wallet,
+      name,
+      description,
+      tags: tags || [],
+      model,
+      system_prompt,
+      tools: tools || [],
+      price_xlm: parseFloat(price_xlm) || 0.01,
+      visibility: visibility || 'public',
+      api_endpoint: apiEndpoint,
+      api_key: apiKey,
+    });
+
     if (agentError) {
-      console.error('Supabase agent insert error:', agentError);
-      if (agentError.code === '23503') {
-        return NextResponse.json(
-          { error: 'Failed to persist deployed agent: owner wallet is not available in users table', key_mode: keyMode },
-          { status: 500 }
-        );
+      if (isMissingTableError(agentError)) {
+        // Tables not yet created – fall back to local demo store and inform caller
+        upsertDemoAgent({
+          id: agentId,
+          owner_wallet,
+          name,
+          description,
+          tags: tags || [],
+          model,
+          system_prompt,
+          tools: tools || [],
+          price_xlm: parseFloat(price_xlm) || 0.01,
+          visibility: visibility || 'public',
+          api_endpoint: apiEndpoint,
+          api_key: apiKey,
+        });
+        return NextResponse.json({
+          id: agentId,
+          api_key: apiKey,
+          api_endpoint: apiEndpoint,
+          message: 'Agent deployed (demo fallback – run supabase-schema.sql in your Supabase SQL editor to persist agents)',
+          storage_mode: 'demo_fallback',
+          warning: 'Apply supabase-schema.sql to persist agents in database',
+        });
       }
+
+      console.error('Supabase agent insert error:', agentError);
+
       if (agentError.code === '42501') {
         return NextResponse.json(
           {
-            error: 'Failed to persist deployed agent: database permission denied (check SUPABASE_SERVICE_ROLE_KEY and RLS policies)',
+            error: 'Database permission denied – check SUPABASE_SERVICE_ROLE_KEY and that RLS is disabled on the agents table',
             details: agentError.message,
             key_mode: keyMode,
           },
           { status: 500 }
         );
       }
+
       return NextResponse.json(
         {
           error: 'Failed to persist deployed agent',
