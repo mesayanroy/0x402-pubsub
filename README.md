@@ -8,6 +8,8 @@
 
 Users connect their Freighter wallet, build custom AI agents, monetize them on-chain, and every agent API request is metered and paid using the 0x402 AI-to-AI payment protocol. A live trading dashboard lets users test their XLM on the Stellar DEX directly from the UI — no CLI required.
 
+<img width="375" height="586" alt="image" src="https://github.com/user-attachments/assets/21b0155a-ecfe-4ec3-a319-8a0f32eee2b6" />
+
 ## Tech Stack
 
 - **Frontend**: Next.js 15 (App Router), TypeScript, TailwindCSS, Framer Motion
