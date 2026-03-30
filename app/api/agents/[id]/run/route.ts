@@ -44,12 +44,28 @@ async function getAgent(agentId: string) {
 
 async function runAgentModel(model: string, systemPrompt: string, userInput: string): Promise<string> {
   if (model === 'openai-gpt4o-mini') {
-    const { runOpenAIAgent } = await import('@/lib/openai');
-    return runOpenAIAgent(systemPrompt, userInput);
+    if (!process.env.OPENAI_API_KEY) {
+      return '[Demo mode] OpenAI API key not configured. Your agent received the input and would normally respond here. Set OPENAI_API_KEY to enable live AI responses.';
+    }
+    try {
+      const { runOpenAIAgent } = await import('@/lib/openai');
+      return runOpenAIAgent(systemPrompt, userInput);
+    } catch (err) {
+      console.error('[run] OpenAI model error:', err);
+      return `[AI Error] The agent model returned an error: ${String(err)}. Payment was processed successfully.`;
+    }
   }
   if (model === 'anthropic-claude-haiku') {
-    const { runAnthropicAgent } = await import('@/lib/anthropic');
-    return runAnthropicAgent(systemPrompt, userInput);
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return '[Demo mode] Anthropic API key not configured. Your agent received the input and would normally respond here. Set ANTHROPIC_API_KEY to enable live AI responses.';
+    }
+    try {
+      const { runAnthropicAgent } = await import('@/lib/anthropic');
+      return runAnthropicAgent(systemPrompt, userInput);
+    } catch (err) {
+      console.error('[run] Anthropic model error:', err);
+      return `[AI Error] The agent model returned an error: ${String(err)}. Payment was processed successfully.`;
+    }
   }
   return 'Unknown model';
 }
@@ -154,13 +170,6 @@ export async function POST(
     const requestId = uuidv4();
 
     if (paymentTxHash && agent.price_xlm > 0) {
-      if (!callerWallet) {
-        return NextResponse.json(
-          { error: 'Missing X-Payment-Wallet header for paid request' },
-          { status: 400 }
-        );
-      }
-
       // Verify paid request inline so API callers get immediate completion even
       // when background consumers are not running.
       const paymentVerified = await verifyPayment(
@@ -168,7 +177,7 @@ export async function POST(
         agent.owner_wallet,
         agent.price_xlm,
         agentId,
-        callerWallet
+        callerWallet || undefined
       );
       if (!paymentVerified) {
         return NextResponse.json({ error: 'Payment verification failed' }, { status: 402 });

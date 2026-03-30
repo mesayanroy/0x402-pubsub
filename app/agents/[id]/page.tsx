@@ -53,11 +53,11 @@ export default function AgentDetailPage() {
     if (agentId) fetchAgent();
   }, [agentId]);
 
-  const runAgent = async (txHash?: string) => {
+  const runAgent = async (txHash?: string, signerWallet?: string) => {
     setRunning(true);
     setError(null);
     try {
-      const walletAddress = localStorage.getItem('wallet_address');
+      const walletAddress = signerWallet || localStorage.getItem('wallet_address');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (txHash) {
         headers['X-Payment-Tx-Hash'] = txHash;
@@ -262,9 +262,9 @@ X-Payment-Wallet: {your_G_address}
         priceXlm={paymentChallenge?.amountXlm ?? agent.price_xlm}
         ownerAddress={paymentChallenge?.address ?? agent.owner_wallet}
         paymentMemo={paymentChallenge?.memo ?? `agent:${agent.id}`}
-        onPaymentSuccess={(txHash) => {
+        onPaymentSuccess={(txHash, signerWallet) => {
           setPaymentModal(false);
-          runAgent(txHash);
+          runAgent(txHash, signerWallet);
         }}
       />
     </div>

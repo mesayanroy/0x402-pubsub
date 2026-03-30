@@ -18,6 +18,8 @@ import {
   YAxis,
 } from 'recharts';
 import { Agent } from '@/types';
+import { useMarketplaceFeed } from '@/hooks/useMarketplaceFeed';
+import { truncateAddress } from '@/lib/stellar';
 
 type AnalyticsResponse = {
   byModel: Array<{ model: string; requests: number; paidRequests: number; earnedXlm: number; avgLatencyMs: number }>;
@@ -76,6 +78,11 @@ export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
+
+  // Real-time live feed of 0x402 activity for MY agents
+  const { events: liveEvents, isConnected: feedConnected } = useMarketplaceFeed({ maxEvents: 20 });
+  const myAgentIds = new Set(myAgents.map((a) => a.id));
+  const myLiveEvents = liveEvents.filter((e) => myAgentIds.has(e.agentId));
 
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
@@ -372,6 +379,51 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Real-time 0x402 Live Activity */}
+          <div className="rounded-2xl border border-white/[0.06] bg-[rgba(5,5,8,0.85)] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${feedConnected ? 'bg-[#00FFE5] animate-pulse' : 'bg-amber-400'}`} />
+                <span className="font-mono text-xs text-white/70">Live 0x402 Activity</span>
+              </div>
+              <span className="font-mono text-[10px] text-white/30">{feedConnected ? 'connected · Ably' : 'reconnecting...'}</span>
+            </div>
+            <div className="divide-y divide-white/[0.03]">
+              {myLiveEvents.length === 0 ? (
+                <div className="px-5 py-4 font-mono text-xs text-white/40">
+                  No live activity yet. Real-time events will appear here when your agents are called.
+                </div>
+              ) : (
+                myLiveEvents.slice(0, 10).map((ev, idx) => (
+                  <div key={`${ev.timestamp}-${idx}`} className="flex items-center justify-between px-5 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono border uppercase tracking-wide bg-[rgba(0,255,229,0.1)] border-[rgba(0,255,229,0.3)] text-[#00FFE5]">
+                        {ev.eventType.replace(/_/g, '\u00A0')}
+                      </span>
+                      <span className="font-mono text-xs text-white/80 truncate max-w-[140px]">{ev.agentName}</span>
+                      <span className="font-mono text-xs text-white/40">
+                        {ev.callerWallet ? truncateAddress(ev.callerWallet) : 'anonymous'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {typeof ev.priceXlm === 'number' && ev.priceXlm > 0 && (
+                        <span className="font-mono text-xs text-[#4ade80]">+{ev.priceXlm.toFixed(4)} XLM</span>
+                      )}
+                      {ev.txHash && (
+                        <a href={ev.txExplorerUrl} target="_blank" rel="noreferrer" className="font-mono text-[9px] text-[#FFB800] hover:underline">
+                          {ev.txHash.slice(0, 8)}…
+                        </a>
+                      )}
+                      <span className="font-mono text-[10px] text-white/30">
+                        {new Date(ev.timestamp).toLocaleTimeString('en-US', { hour12: false })}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           {/* My Agents */}
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -382,22 +434,33 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-3">
               {myAgents.length === 0 && (
-                <p className="font-mono text-sm text-gray-500">No agents deployed yet.</p>
+                <p className="font-mono text-sm text-gray-500">No agents deployed yet. <Link href="/build" className="text-[#00FFE5] underline">Build your first agent →</Link></p>
               )}
               {myAgents.map((agent) => (
-                <div key={agent.id} className="flex items-center justify-between p-4 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:border-[rgba(0,255,229,0.15)] transition-all">
+                <Link key={agent.id} href={`/agents/${agent.id}`} className="flex items-center justify-between p-4 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:border-[rgba(0,255,229,0.15)] transition-all group block">
                   <div>
-                    <div className="font-syne font-bold text-white">{agent.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-syne font-bold text-white group-hover:text-[#00FFE5] transition-colors">{agent.name}</div>
+                      {agent.forked_from && (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-purple-800 bg-purple-900/20 text-purple-400">forked</span>
+                      )}
+                      {agent.visibility === 'public' && !agent.forked_from && (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[rgba(0,255,229,0.3)] bg-[rgba(0,255,229,0.06)] text-[#00FFE5]">marketplace</span>
+                      )}
+                    </div>
                     <div className="font-mono text-xs text-gray-500 mt-0.5">
                       {agent.model === 'openai-gpt4o-mini' ? 'GPT-4o Mini' : 'Claude Haiku'} · {agent.price_xlm} XLM/req · {agent.visibility}
                     </div>
+                    {agent.forked_from && (
+                      <div className="font-mono text-[10px] text-purple-400 mt-0.5">Forked · ID: {agent.forked_from.slice(0, 8)}…</div>
+                    )}
                   </div>
                   <div className="text-right">
-                    <div className="font-mono text-sm text-[#FFB800]">{agent.total_earned_xlm} XLM</div>
-                    {xlmPrice && <div className="font-mono text-xs text-gray-500">≈ ${(agent.total_earned_xlm * xlmPrice).toFixed(2)}</div>}
-                    <div className="font-mono text-xs text-gray-500">{agent.total_requests.toLocaleString()} requests</div>
+                    <div className="font-mono text-sm text-[#FFB800]">{(agent.total_earned_xlm ?? 0).toFixed(4)} XLM</div>
+                    {xlmPrice && <div className="font-mono text-xs text-gray-500">≈ ${((agent.total_earned_xlm ?? 0) * xlmPrice).toFixed(2)}</div>}
+                    <div className="font-mono text-xs text-gray-500">{(agent.total_requests ?? 0).toLocaleString()} requests</div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>

@@ -3,17 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
-  CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
-  ReferenceLine,
 } from 'recharts';
+import CandlestickChart from '@/components/CandlestickChart';
 
 interface OHLC {
   ts: string;
@@ -43,10 +40,12 @@ interface Position {
   collateral: number;
   leverage: number;
   unrealisedPnl: number;
+  realisedPnl?: number;
   liquidationPrice: number;
   tp: number | null;
   sl: number | null;
   pair: string;
+  openedAt: string;
 }
 
 interface TokenInfo {
@@ -137,6 +136,7 @@ export default function TradingPage() {
   const [collateral, setCollateral] = useState('50');
   const [orders, setOrders] = useState<Order[]>([]);
   const [position, setPosition] = useState<Position | null>(null);
+  const [closedPnl, setClosedPnl] = useState<{ pnl: number; pair: string; ts: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'chart' | 'agents'>('chart');
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [agentCategory, setAgentCategory] = useState('all');
@@ -147,6 +147,12 @@ export default function TradingPage() {
 
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const priceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const positionRef = useRef<Position | null>(null);
+
+  // Keep positionRef in sync so PnL effect always reads fresh position
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
 
   const selectedPair = TOKEN_PAIRS.find((p) => p.id === selectedPairId) ?? TOKEN_PAIRS[0];
   const currentTokenInfo = tokenPrices[selectedPair.coinGeckoId];
@@ -245,6 +251,53 @@ export default function TradingPage() {
   const recentLow = candles.length ? Math.min(...candles.slice(-20).map((c) => c.low)) : 0;
   const chartData = candles.slice(-40).map((c) => ({ ts: c.ts, price: c.close, high: c.high, low: c.low, volume: c.volume }));
 
+  // Real-time PnL: update unrealisedPnl whenever the live candle price changes.
+  // Use positionRef to always read the latest position without causing an infinite
+  // re-render loop (adding `position` to deps would trigger the effect on every PnL
+  // update, which in turn re-renders causing another candle-change cycle).
+  useEffect(() => {
+    const pos = positionRef.current;
+    if (!pos) return;
+    const livePrice = candles[candles.length - 1]?.close;
+    if (!livePrice) return;
+    const priceDiff = pos.side === 'long'
+      ? livePrice - pos.entryPrice
+      : pos.entryPrice - livePrice;
+    const pnl = priceDiff * pos.size * pos.leverage;
+
+    // Check TP / SL triggers
+    if (pos.tp && pos.side === 'long' && livePrice >= pos.tp) {
+      const tpPnl = (pos.tp - pos.entryPrice) * pos.size * pos.leverage;
+      setClosedPnl({ pnl: tpPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setOrderSuccess(`🎯 Take Profit hit! PnL: +$${fmtPrice(tpPnl)} · ${pos.pair.toUpperCase()}`);
+      setPosition(null);
+      return;
+    }
+    if (pos.tp && pos.side === 'short' && livePrice <= pos.tp) {
+      const tpPnl = (pos.entryPrice - pos.tp) * pos.size * pos.leverage;
+      setClosedPnl({ pnl: tpPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setOrderSuccess(`🎯 Take Profit hit! PnL: +$${fmtPrice(tpPnl)} · ${pos.pair.toUpperCase()}`);
+      setPosition(null);
+      return;
+    }
+    if (pos.sl && pos.side === 'long' && livePrice <= pos.sl) {
+      const slPnl = (pos.sl - pos.entryPrice) * pos.size * pos.leverage;
+      setClosedPnl({ pnl: slPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setOrderSuccess(`🛑 Stop Loss triggered. PnL: ${slPnl >= 0 ? '+' : ''}$${fmtPrice(slPnl)} · ${pos.pair.toUpperCase()}`);
+      setPosition(null);
+      return;
+    }
+    if (pos.sl && pos.side === 'short' && livePrice >= pos.sl) {
+      const slPnl = (pos.entryPrice - pos.sl) * pos.size * pos.leverage;
+      setClosedPnl({ pnl: slPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setOrderSuccess(`🛑 Stop Loss triggered. PnL: ${slPnl >= 0 ? '+' : ''}$${fmtPrice(slPnl)} · ${pos.pair.toUpperCase()}`);
+      setPosition(null);
+      return;
+    }
+
+    setPosition((prev) => prev ? { ...prev, unrealisedPnl: pnl } : null);
+  }, [candles]);
+
   const submitOrder = useCallback(() => {
     setOrderError(null); setOrderSuccess(null);
     const amt = parseFloat(orderAmount);
@@ -260,7 +313,7 @@ export default function TradingPage() {
     setOrders((prev) => [newOrder, ...prev.slice(0, 19)]);
     if (orderType === 'market') {
       const liqOffset = col / (amt * leverage) * (orderSide === 'buy' ? -1 : 1);
-      setPosition({ side: orderSide === 'buy' ? 'long' : 'short', entryPrice: price, size: amt, collateral: col, leverage, unrealisedPnl: 0, liquidationPrice: price + liqOffset, tp, sl, pair: selectedPairId });
+      setPosition({ side: orderSide === 'buy' ? 'long' : 'short', entryPrice: price, size: amt, collateral: col, leverage, unrealisedPnl: 0, liquidationPrice: price + liqOffset, tp, sl, pair: selectedPairId, openedAt: new Date().toISOString() });
       setOrderSuccess(`Market ${orderSide.toUpperCase()} filled @ $${fmtPrice(price)} · ${selectedPair.symbol}`);
     } else {
       setOrderSuccess(`Limit order placed @ $${fmtPrice(price)} · ${selectedPair.symbol}`);
@@ -269,7 +322,9 @@ export default function TradingPage() {
 
   const closePosition = () => {
     if (!position) return;
-    setOrderSuccess(`Position closed. PnL: ${position.unrealisedPnl >= 0 ? '+' : ''}$${fmtPrice(position.unrealisedPnl)}`);
+    const pnl = position.unrealisedPnl;
+    setClosedPnl({ pnl, pair: position.pair, ts: new Date().toISOString() });
+    setOrderSuccess(`Position closed. PnL: ${pnl >= 0 ? '+' : ''}$${fmtPrice(pnl)} · ${position.pair.toUpperCase()}`);
     setPosition(null);
   };
 
@@ -347,42 +402,40 @@ export default function TradingPage() {
             <motion.div key="chart" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
               className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
               <div className="space-y-4">
-                {/* Price Chart */}
+                {/* Closed PnL banner */}
+                <AnimatePresence>
+                  {closedPnl && (
+                    <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      className={`p-4 rounded-xl border font-mono text-sm flex items-center justify-between ${closedPnl.pnl >= 0 ? 'border-green-800 bg-[rgba(74,222,128,0.08)] text-[#4ade80]' : 'border-red-900 bg-red-900/10 text-red-400'}`}>
+                      <span>{closedPnl.pnl >= 0 ? '🟢 Profit' : '🔴 Loss'} on {closedPnl.pair.toUpperCase()} — {closedPnl.pnl >= 0 ? '+' : ''}${fmtPrice(closedPnl.pnl)}</span>
+                      <button onClick={() => setClosedPnl(null)} className="text-xs opacity-60 hover:opacity-100 ml-4">✕</button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Candlestick Price Chart */}
                 <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-[#00FFE5] animate-pulse" />
                       <span className="font-mono text-xs text-white/70">Live · 1m candles · {selectedPair.symbol}</span>
+                      <span className="font-mono text-[9px] text-white/30">🟢 bullish  🔴 bearish</span>
                     </div>
                     <div className="flex items-center gap-3 font-mono text-[10px] text-white/40">
-                      <span className="text-[#FF6B6B]">— Resistance {fmtPrice(recentHigh)}</span>
-                      <span className="text-[#4ade80]">— Support {fmtPrice(recentLow)}</span>
+                      <span className="text-[#FF6B6B]">— RES {fmtPrice(recentHigh)}</span>
+                      <span className="text-[#4ade80]">— SUP {fmtPrice(recentLow)}</span>
                     </div>
                   </div>
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: 0 }}>
-                        <defs>
-                          <linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#00FFE5" stopOpacity={0.25} />
-                            <stop offset="95%" stopColor="#00FFE5" stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
-                        <XAxis dataKey="ts" tick={{ fill: '#555', fontSize: 9 }} tickFormatter={(v: string) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} />
-                        <YAxis domain={['auto', 'auto']} tick={{ fill: '#555', fontSize: 9 }} tickFormatter={(v: number) => fmtPrice(v)} width={72} />
-                        <Tooltip contentStyle={{ background: '#0a0a14', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#fff' }}
-                          labelFormatter={(l) => new Date(String(l)).toLocaleTimeString([], { hour12: false })}
-                          formatter={(v: unknown) => [`$${fmtPrice(v as number)}`, 'Price']} />
-                        <ReferenceLine y={recentHigh} stroke="#FF6B6B" strokeDasharray="5 3" strokeWidth={1.5} label={{ value: 'Resistance', fill: '#FF6B6B', fontSize: 9 }} />
-                        <ReferenceLine y={recentLow} stroke="#4ade80" strokeDasharray="5 3" strokeWidth={1.5} label={{ value: 'Support', fill: '#4ade80', fontSize: 9 }} />
-                        {position?.tp && <ReferenceLine y={position.tp} stroke="#FFB800" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'TP', fill: '#FFB800', fontSize: 9 }} />}
-                        {position?.sl && <ReferenceLine y={position.sl} stroke="#f87171" strokeDasharray="3 3" strokeWidth={1.5} label={{ value: 'SL', fill: '#f87171', fontSize: 9 }} />}
-                        {position && <ReferenceLine y={position.liquidationPrice} stroke="#dc2626" strokeWidth={1} strokeDasharray="2 4" label={{ value: 'LIQ', fill: '#dc2626', fontSize: 9 }} />}
-                        <Area type="monotone" dataKey="price" stroke="#00FFE5" fill="url(#priceGrad)" strokeWidth={2} dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <CandlestickChart
+                    candles={candles}
+                    height={288}
+                    supportLevel={recentLow}
+                    resistanceLevel={recentHigh}
+                    tpLevel={position?.tp ?? null}
+                    slLevel={position?.sl ?? null}
+                    liqLevel={position?.liquidationPrice ?? null}
+                    entryLevel={position?.entryPrice ?? null}
+                  />
                 </div>
 
                 {/* Volume Bar */}

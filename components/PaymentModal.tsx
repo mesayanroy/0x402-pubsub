@@ -11,7 +11,7 @@ interface PaymentModalProps {
   priceXlm: number;
   ownerAddress: string;
   paymentMemo: string;
-  onPaymentSuccess: (txHash: string) => void;
+  onPaymentSuccess: (txHash: string, signerWallet: string) => void;
 }
 
 type PaymentStep = 'idle' | 'checking_wallet' | 'building_tx' | 'signing' | 'submitting' | 'confirming' | 'done' | 'error';
@@ -166,7 +166,7 @@ export default function PaymentModal({
       await waitForLedgerConfirmation(horizonServer, txHash);
 
       setStep('done');
-      onPaymentSuccess(txHash);
+      onPaymentSuccess(txHash, senderKey);
     } catch (err) {
       setError(extractStellarError(err));
       setStep('error');
