@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { truncateAddress } from '@/lib/stellar';
+import { createPortal } from 'react-dom';
 
 type WalletOption = {
   id: string;
@@ -43,6 +44,7 @@ export default function WalletConnect() {
   const [connecting, setConnecting] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('wallet_address');
@@ -50,6 +52,7 @@ export default function WalletConnect() {
       setAddress(saved);
       fetchBalance(saved);
     }
+    setMounted(true);
   }, []);
 
   const fetchBalance = async (addr: string) => {
@@ -189,8 +192,8 @@ export default function WalletConnect() {
         {connecting ? 'Connecting...' : 'Connect Wallet'}
       </button>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {showModal && mounted && createPortal(
+        <div className="fixed inset-0 z-[120] flex items-end justify-center px-4 pb-6 pt-6 sm:items-start sm:pt-24">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/70 backdrop-blur-sm"
@@ -198,7 +201,7 @@ export default function WalletConnect() {
           />
 
           {/* Modal */}
-          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-[rgba(0,255,229,0.2)] bg-[#0a0a10] p-6 shadow-2xl">
+          <div className="relative z-10 w-full max-w-sm max-h-[72vh] overflow-y-auto rounded-2xl border border-[rgba(0,255,229,0.2)] bg-[#0a0a10] p-6 shadow-2xl sm:max-h-[70vh]">
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-syne text-lg font-bold text-white">Connect a Wallet</h2>
               <button
@@ -241,7 +244,8 @@ export default function WalletConnect() {
               Connecting will request access to your public key only. No funds are moved.
             </p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

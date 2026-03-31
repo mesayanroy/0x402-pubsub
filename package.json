@@ -10,7 +10,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx --max-warnings 0",
     "consumers:all": "npx ts-node --project tsconfig.json -e \"require('./consumers/index.ts')\"",
     "cli": "npx ts-node --project tsconfig.json cli/index.ts"
   },

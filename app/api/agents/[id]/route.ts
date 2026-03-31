@@ -47,7 +47,18 @@ export async function GET(
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
 
-    return NextResponse.json(data);
+    let forkCount = 0;
+    try {
+      const { count } = await supabase
+        .from('agent_forks')
+        .select('*', { count: 'exact', head: true })
+        .eq('original_agent_id', id);
+      forkCount = count || 0;
+    } catch {
+      // Non-fatal when fork table is not migrated yet.
+    }
+
+    return NextResponse.json({ ...data, fork_count: forkCount });
   } catch (err) {
     console.error('Get agent error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

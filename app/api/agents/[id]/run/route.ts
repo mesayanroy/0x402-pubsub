@@ -127,7 +127,14 @@ export async function POST(
       return NextResponse.json({ error: 'Agent is not active' }, { status: 403 });
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({})) as {
+      input?: string;
+      customization?: {
+        prompt?: string;
+        tags?: string[];
+        api_endpoint?: string;
+      };
+    };
     const { input } = body;
 
     if (!input || typeof input !== 'string') {
@@ -168,6 +175,10 @@ export async function POST(
     }
 
     const requestId = uuidv4();
+    const isMarketplaceAgent = ['public', 'forked'].includes(String(agent.visibility || ''));
+    const effectivePrompt = isMarketplaceAgent && body.customization?.prompt
+      ? body.customization.prompt
+      : agent.system_prompt;
 
     if (paymentTxHash && agent.price_xlm > 0) {
       // Verify paid request inline so API callers get immediate completion even
@@ -185,68 +196,82 @@ export async function POST(
     }
 
     // Free agent (price_xlm === 0) or synchronous fallback path
-    const output = await runAgentModel(agent.model, agent.system_prompt, input);
+    const output = await runAgentModel(agent.model, effectivePrompt, input);
     const latencyMs = Date.now() - startTime;
 
     // Log to database
     if (supabaseUrl && supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      try {
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-      const insertRes = await supabase.from('agent_requests').insert({
-        id: requestId,
-        agent_id: agentId,
-        caller_wallet: callerWallet || null,
-        caller_ip: req.headers.get('x-forwarded-for') || null,
-        input_payload: { input },
-        output_payload: { output },
-        payment_tx_hash: paymentTxHash,
-        tx_explorer_url: paymentTxHash ? explorerUrl(paymentTxHash) : null,
-        payment_amount_xlm: paymentTxHash ? agent.price_xlm : 0,
-        status: 'success',
-        latency_ms: latencyMs,
-      });
-
-      if (insertRes.error && !isMissingAgentsTableError(insertRes.error)) {
-        console.warn('[run] DB insert error:', insertRes.error);
-      }
-
-      if (!insertRes.error && paymentTxHash) {
-        const txExplorerUrl = explorerUrl(paymentTxHash);
-        await supabase.from('invoices').upsert(
-          {
-            request_id: requestId,
-            agent_id: agentId,
-            owner_wallet: agent.owner_wallet,
-            caller_wallet: callerWallet || null,
-            amount_xlm: agent.price_xlm,
-            tx_hash: paymentTxHash,
-            tx_explorer_url: txExplorerUrl,
+        const insertRes = await supabase.from('agent_requests').insert({
+          id: requestId,
+          agent_id: agentId,
+          caller_wallet: callerWallet || null,
+          caller_ip: req.headers.get('x-forwarded-for') || null,
+          input_payload: {
+            input,
+            customization: body.customization || null,
           },
-          { onConflict: 'request_id' }
-        );
-      }
+          output_payload: { output },
+          payment_tx_hash: paymentTxHash,
+          tx_explorer_url: paymentTxHash ? explorerUrl(paymentTxHash) : null,
+          payment_amount_xlm: paymentTxHash ? agent.price_xlm : 0,
+          status: 'success',
+          latency_ms: latencyMs,
+        });
 
-      if (!insertRes.error) {
-        await supabase
+        if (insertRes.error && !isMissingAgentsTableError(insertRes.error)) {
+          console.warn('[run] DB insert error:', insertRes.error);
+        }
+
+        if (!insertRes.error && paymentTxHash) {
+          const txExplorerUrl = explorerUrl(paymentTxHash);
+          const invoiceRes = await supabase.from('invoices').upsert(
+            {
+              request_id: requestId,
+              agent_id: agentId,
+              owner_wallet: agent.owner_wallet,
+              caller_wallet: callerWallet || null,
+              amount_xlm: agent.price_xlm,
+              tx_hash: paymentTxHash,
+              tx_explorer_url: txExplorerUrl,
+            },
+            { onConflict: 'request_id' }
+          );
+          if (invoiceRes.error) {
+            console.warn('[run] invoice upsert error:', invoiceRes.error);
+          }
+        }
+
+        const totalRequests = Number(agent.total_requests || 0);
+        const totalEarned = Number(agent.total_earned_xlm || 0);
+
+        const updateRes = await supabase
           .from('agents')
           .update({
-            total_requests: agent.total_requests ? agent.total_requests + 1 : 1,
+            total_requests: totalRequests + 1,
             total_earned_xlm: paymentTxHash
-              ? (agent.total_earned_xlm || 0) + agent.price_xlm
-              : agent.total_earned_xlm || 0,
+              ? totalEarned + Number(agent.price_xlm || 0)
+              : totalEarned,
             updated_at: new Date().toISOString(),
           })
           .eq('id', agentId);
-      } else {
+
+        if (updateRes.error) {
+          console.warn('[run] agent stats update error:', updateRes.error);
+        }
+      } catch (dbErr) {
+        console.warn('[run] DB persistence failed, continuing response:', dbErr);
         incrementDemoAgentStats(agentId, {
           paid: Boolean(paymentTxHash),
-          amountXlm: agent.price_xlm,
+          amountXlm: Number(agent.price_xlm || 0),
         });
       }
     } else {
       incrementDemoAgentStats(agentId, {
         paid: Boolean(paymentTxHash),
-        amountXlm: agent.price_xlm,
+        amountXlm: Number(agent.price_xlm || 0),
       });
     }
 
@@ -270,9 +295,25 @@ export async function POST(
       latency_ms: latencyMs,
       tx_hash: paymentTxHash || null,
       tx_explorer_url: paymentTxHash ? explorerUrl(paymentTxHash) : null,
+      billed_xlm: paymentTxHash ? Number(agent.price_xlm || 0) : 0,
+      runtime: {
+        agent_id: agentId,
+        owner_wallet: agent.owner_wallet,
+        api_endpoint: agent.api_endpoint || null,
+        api_key: agent.api_key || null,
+        model: agent.model,
+        visibility: agent.visibility,
+      },
     });
   } catch (err) {
     console.error('Agent run error:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const details = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'production' ? undefined : details,
+      },
+      { status: 500 }
+    );
   }
 }
