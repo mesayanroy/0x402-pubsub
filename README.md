@@ -16,25 +16,25 @@ It combines:
 Place the provided screenshots in this folder with the following names so README renders them automatically:
 
 1. fork-wallet-confirm.png
-![alt text](<Screenshot 2026-03-31 231647.png>)
+<img width="1863" height="879" alt="Screenshot 2026-03-31 231647" src="https://github.com/user-attachments/assets/eaddf64a-7d4b-4a9a-92e1-f5a391256baa" />
 2. stellar-explorer-proof.png
-![alt text](<Screenshot 2026-03-31 231713.png>)
+<img width="1913" height="912" alt="Screenshot 2026-03-31 231713" src="https://github.com/user-attachments/assets/bfa47f5b-56a9-46df-90ac-c093a7813bbb" />
 3. marketplace-fork-success.png
-![alt text](<Screenshot 2026-03-31 231815.png>)
+<img width="1914" height="909" alt="Screenshot 2026-03-31 231815" src="https://github.com/user-attachments/assets/d46d46cf-3d78-411d-b566-9fa8ff371e53" />
 4. run-payment-modal.png
-![alt text](<Screenshot 2026-03-31 232001.png>)
+<img width="1857" height="866" alt="Screenshot 2026-03-31 232001" src="https://github.com/user-attachments/assets/0f5c5a89-f22c-418d-b689-b53ef2dac8b2" />
 5. run-summary-live-feed.png
-![alt text](<Screenshot 2026-03-31 232029.png>)
+<img width="1914" height="904" alt="Screenshot 2026-03-31 232029" src="https://github.com/user-attachments/assets/a892c050-6502-4b11-b39f-0768cdeb1a6b" />
 6. build-validation-sign.png
-![alt text](<Screenshot 2026-03-31 232308.png>)
+<img width="1913" height="914" alt="Screenshot 2026-03-31 232308" src="https://github.com/user-attachments/assets/4f47ddb4-d077-4c1e-96b4-5f20dad7ac6e" />
 7. trading-surface.png
-![alt text](<Screenshot 2026-03-31 232426.png>)
+<img width="1896" height="891" alt="Screenshot 2026-03-31 232426" src="https://github.com/user-attachments/assets/25983dad-a6e9-4035-b6d4-5afefd765cf9" />
 8. workflow-waiting-signature.png
-![alt text](<Screenshot 2026-03-31 232659.png>)
+<img width="1905" height="910" alt="Screenshot 2026-03-31 232659" src="https://github.com/user-attachments/assets/f4913e0f-32c8-404d-95bb-8036c230ce5b" />
 9. workflow-invoice-confirmed.png
-![alt text](<Screenshot 2026-03-31 232844.png>)
+<img width="1907" height="897" alt="Screenshot 2026-03-31 232844" src="https://github.com/user-attachments/assets/47a5be0a-bc68-4563-b7f1-45eec37efbfe" />
 10. dashboard-analytics.png
-![alt text](<Screenshot 2026-03-31 232950.png>)
+<img width="1918" height="923" alt="Screenshot 2026-03-31 232950" src="https://github.com/user-attachments/assets/26b193fb-a6fe-4aa2-88aa-cdf42048cbef" />
 
 After adding images, commit and push. The main README references these paths directly.
 
@@ -81,6 +81,9 @@ flowchart LR
   Q --> SUPA
   ABLY --> FE
 ```
+
+<img width="1008" height="703" alt="Screenshot 2026-04-01 001405" src="https://github.com/user-attachments/assets/c0dc9239-2a6e-41bd-975c-96a9d5a9ce6a" />
+
 
 ## End-To-End Workflow (Start To Finish)
 
