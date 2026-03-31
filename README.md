@@ -1,8 +1,9 @@
-# AgentForge — Autonomous AI Commerce On Stellar
+# AgentForge — An Web 3 Agentic AI Infrastructure On-chain
+Where user can Ideate , build , own , monitize web3 agents via deploying agent Onchain.
 
 [![CI / CD](https://github.com/mesayanroy/0x402-pubsub/actions/workflows/ci.yml/badge.svg)](https://github.com/mesayanroy/0x402-pubsub/actions/workflows/ci.yml)
 
-AgentForge is a full-stack protocol and product for building, deploying, monetizing, and executing AI agents with verifiable payment rails on Stellar.
+AgentForge is solving Automation On-chain. An Agentic AI Infrastructure where user can ideate, build, own , monitize via deploying agent Onchain . Become the Righter owner of your agents credibility & ownership , Monetization . Along with Developers toolkit to build and use thier agents in thier own dapp/project with better deployment environment locally with CLI and executing AI agents with verifiable payment rails on Stellar.
 
 Full architecture document: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
 
