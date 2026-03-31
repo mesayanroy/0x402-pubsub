@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import CandlestickChart from '@/components/CandlestickChart';
+import CandlestickChart, { CloseEvent } from '@/components/CandlestickChart';
+import type { Agent } from '@/types';
 
 interface OHLC {
   ts: string;
@@ -137,13 +138,24 @@ export default function TradingPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [position, setPosition] = useState<Position | null>(null);
   const [closedPnl, setClosedPnl] = useState<{ pnl: number; pair: string; ts: string } | null>(null);
+  const [closeEvent, setCloseEvent] = useState<CloseEvent | null>(null);
   const [activeTab, setActiveTab] = useState<'chart' | 'agents'>('chart');
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [agentCategory, setAgentCategory] = useState('all');
+  const [agentSubTab, setAgentSubTab] = useState<'templates' | 'mine' | 'arb-demo'>('templates');
+  const [myDeployedAgents, setMyDeployedAgents] = useState<Agent[]>([]);
+  const [loadingMyAgents, setLoadingMyAgents] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  // Arbitrage demo state
+  const [arbRunning, setArbRunning] = useState(false);
+  const [arbStep, setArbStep] = useState(0);
+  const [arbPrices, setArbPrices] = useState({ binance: 0, coinbase: 0 });
+  const [arbResult, setArbResult] = useState<{ profit: number; pair: string } | null>(null);
+  const [sigModalOpen, setSigModalOpen] = useState(false);
+  const [pendingArbTrade, setPendingArbTrade] = useState<{ buyEx: string; sellEx: string; spread: number; spreadPct: number } | null>(null);
 
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const priceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -210,6 +222,7 @@ export default function TradingPage() {
     const base = FALLBACK_PRICES[selectedPair.coinGeckoId] || 1;
     setCandles(generateHistory(base, 60));
     setPosition(null);
+    setCloseEvent(null);
   }, [selectedPairId, selectedPair.coinGeckoId]);
 
   // Live price tick simulation — restart whenever candles are seeded or pair changes
@@ -232,7 +245,7 @@ export default function TradingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles.length, selectedPairId]);
 
-  // Load wallet balance
+  // Load wallet balance and user's deployed agents
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
     if (!addr) return;
@@ -245,6 +258,26 @@ export default function TradingPage() {
       } catch { /* ignore */ }
     };
     void load();
+
+    // Fetch user's own deployed agents
+    setLoadingMyAgents(true);
+    fetch(`/api/agents/list?owner=${encodeURIComponent(addr)}`)
+      .then((r) => r.ok ? r.json() : { agents: [] })
+      .then((d: { agents?: Agent[] }) => setMyDeployedAgents(d.agents ?? []))
+      .catch(() => setMyDeployedAgents([]))
+      .finally(() => setLoadingMyAgents(false));
+  }, []);
+
+  // Persist closed trade to localStorage so dashboard can sync immediately
+  const persistClosedTrade = useCallback((pnl: number, pair: string, closeType: 'tp' | 'sl' | 'manual', closePx: number) => {
+    try {
+      const existing: Array<{ pnl: number; pair: string; ts: string; type: string; closePrice: number }> =
+        JSON.parse(localStorage.getItem('trading_pnl_history') ?? '[]');
+      existing.unshift({ pnl, pair, ts: new Date().toISOString(), type: closeType, closePrice: closePx });
+      localStorage.setItem('trading_pnl_history', JSON.stringify(existing.slice(0, 50)));
+      // Dispatch custom event so dashboard (same tab) can update without polling delay
+      window.dispatchEvent(new CustomEvent('trading_pnl_update', { detail: { pnl, pair, type: closeType } }));
+    } catch { /* ignore */ }
   }, []);
 
   const recentHigh = candles.length ? Math.max(...candles.slice(-20).map((c) => c.high)) : 0;
@@ -269,34 +302,42 @@ export default function TradingPage() {
     if (pos.tp && pos.side === 'long' && livePrice >= pos.tp) {
       const tpPnl = (pos.tp - pos.entryPrice) * pos.size * pos.leverage;
       setClosedPnl({ pnl: tpPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.tp, type: 'tp', pnl: tpPnl });
       setOrderSuccess(`🎯 Take Profit hit! PnL: +$${fmtPrice(tpPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(tpPnl, pos.pair, 'tp', pos.tp);
       setPosition(null);
       return;
     }
     if (pos.tp && pos.side === 'short' && livePrice <= pos.tp) {
       const tpPnl = (pos.entryPrice - pos.tp) * pos.size * pos.leverage;
       setClosedPnl({ pnl: tpPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.tp, type: 'tp', pnl: tpPnl });
       setOrderSuccess(`🎯 Take Profit hit! PnL: +$${fmtPrice(tpPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(tpPnl, pos.pair, 'tp', pos.tp);
       setPosition(null);
       return;
     }
     if (pos.sl && pos.side === 'long' && livePrice <= pos.sl) {
       const slPnl = (pos.sl - pos.entryPrice) * pos.size * pos.leverage;
       setClosedPnl({ pnl: slPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.sl, type: 'sl', pnl: slPnl });
       setOrderSuccess(`🛑 Stop Loss triggered. PnL: ${slPnl >= 0 ? '+' : ''}$${fmtPrice(slPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(slPnl, pos.pair, 'sl', pos.sl);
       setPosition(null);
       return;
     }
     if (pos.sl && pos.side === 'short' && livePrice >= pos.sl) {
       const slPnl = (pos.entryPrice - pos.sl) * pos.size * pos.leverage;
       setClosedPnl({ pnl: slPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.sl, type: 'sl', pnl: slPnl });
       setOrderSuccess(`🛑 Stop Loss triggered. PnL: ${slPnl >= 0 ? '+' : ''}$${fmtPrice(slPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(slPnl, pos.pair, 'sl', pos.sl);
       setPosition(null);
       return;
     }
 
     setPosition((prev) => prev ? { ...prev, unrealisedPnl: pnl } : null);
-  }, [candles]);
+  }, [candles, persistClosedTrade]);
 
   const submitOrder = useCallback(() => {
     setOrderError(null); setOrderSuccess(null);
@@ -323,8 +364,11 @@ export default function TradingPage() {
   const closePosition = () => {
     if (!position) return;
     const pnl = position.unrealisedPnl;
+    const livePrice = candles[candles.length - 1]?.close ?? position.entryPrice;
     setClosedPnl({ pnl, pair: position.pair, ts: new Date().toISOString() });
+    setCloseEvent({ price: livePrice, type: 'manual', pnl });
     setOrderSuccess(`Position closed. PnL: ${pnl >= 0 ? '+' : ''}$${fmtPrice(pnl)} · ${position.pair.toUpperCase()}`);
+    persistClosedTrade(pnl, position.pair, 'manual', livePrice);
     setPosition(null);
   };
 
