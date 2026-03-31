@@ -9,8 +9,8 @@ Full architecture document: [docs/architecture/ARCHITECTURE.md](docs/architectur
 
 It combines:
 - Soroban contracts for on-chain registry and deployment validation
-- HTTP 402-inspired pay-per-request execution in XLM
-- Wallet-signature UX with Freighter
+- HTTP 0x402 protocol to AI - AI, pay-per-request execution in XLM
+- Wallet-signature UX with Multiwallet auth
 - Realtime pub/sub pipeline for events and analytics
 - Agent marketplace, fork economy, workflow executor, and trading surface
 
@@ -146,7 +146,7 @@ Client -> validate-deploy API -> sign tx -> confirm-deploy API
 
 ## Verified Transaction Evidence
 
-Primary proof transaction (fork payment):
+Primary proof transaction (Tx / payment):
 - My wallet address of freighter wallet : GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T
 - VALIDATOR_ID=CAFDQPT6PUWS343TRAAX5O5PCKR5G5YPWBXUDP34NC745XJKAENI4GVY
 - CONTRACT_ID=CA3W37NQUHMFYJJD3TW4B2DI5ABKH7M7BNAMQISB5VW3BCYNO2PC2MYY
