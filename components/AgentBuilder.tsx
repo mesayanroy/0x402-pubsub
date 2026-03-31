@@ -16,6 +16,7 @@ interface AgentFormData {
   priceXlm: string;
   visibility: 'public' | 'private' | 'forked';
   listInMarketplace: boolean;
+  agentWallet: string;
 }
 
 const DRAFT_KEY = 'agent_builder_draft';
@@ -31,6 +32,7 @@ const initialData: AgentFormData = {
   priceXlm: '0.01',
   visibility: 'public',
   listInMarketplace: true,
+  agentWallet: '',
 };
 
 const toolOptions = [
@@ -131,7 +133,7 @@ export default function AgentBuilder() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          owner_wallet: walletAddress,
+          owner_wallet: form.agentWallet || walletAddress,
           name: form.name,
           description: form.description,
           tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
@@ -330,6 +332,19 @@ export default function AgentBuilder() {
                   Your agent will appear in the public marketplace. Earn {form.priceXlm || '0.01'} XLM per request via 0x402 protocol.
                 </div>
               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-gray-400 mb-1.5">Agent Wallet Address (optional)</label>
+              <input
+                type="text"
+                value={form.agentWallet}
+                onChange={(e) => update('agentWallet', e.target.value)}
+                placeholder="Leave blank to use your connected wallet"
+                className="w-full px-3 py-2.5 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] rounded-lg text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-[rgba(0,255,229,0.4)]"
+              />
+              <p className="text-[10px] font-mono text-gray-500 mt-1">
+                Build this agent for a different wallet. Enables multi-agent architecture.
+              </p>
             </div>
             <button
               onClick={() => setStep('prompt')}
