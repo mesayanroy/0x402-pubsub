@@ -1,12 +1,12 @@
 # ── Stage 1: deps ─────────────────────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:22-slim AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm install -g npm@11 && npm ci --omit=dev
 
 # ── Stage 2: builder ───────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
