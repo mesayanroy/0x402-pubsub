@@ -147,6 +147,8 @@ Client -> validate-deploy API -> sign tx -> confirm-deploy API
 
 Primary proof transaction (fork payment):
 - My wallet address of freighter wallet : GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T
+- VALIDATOR_ID=CAFDQPT6PUWS343TRAAX5O5PCKR5G5YPWBXUDP34NC745XJKAENI4GVY
+- CONTRACT_ID=CA3W37NQUHMFYJJD3TW4B2DI5ABKH7M7BNAMQISB5VW3BCYNO2PC2MYY
 - Tx ID: `0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541`
 - Explorer: https://stellar.expert/explorer/testnet/tx/0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541
 - Status: successful
