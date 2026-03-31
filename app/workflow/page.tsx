@@ -251,6 +251,13 @@ const EXECUTOR_STEP_LABELS: Record<ExecutorStep, string> = {
   error: 'Retry',
 };
 
+const STELLAR_MEMO_MAX_LENGTH = 28;
+const STELLAR_POLL_INTERVAL_MS = 2_000;
+
+function generateInvoiceNumber(): string {
+  return `INV-${Date.now().toString(36).toUpperCase()}`;
+}
+
 function extractStellarError(err: unknown): string {
   if (!err) return 'Unknown error';
   if (typeof err === 'object' && err !== null) {
@@ -284,7 +291,7 @@ async function waitForLedger(
       await horizonServer.transactions().transaction(txHash).call();
       return;
     } catch { /* not yet */ }
-    await new Promise((r) => setTimeout(r, 2_000)); // poll every 2 s (Stellar ledger closes ~5 s)
+    await new Promise((r) => setTimeout(r, STELLAR_POLL_INTERVAL_MS));
   }
 }
 
@@ -358,7 +365,7 @@ function PaymentExecutorSection({ walletAddress }: { walletAddress: string }) {
       const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
 
       const senderAccount = await horizonServer.loadAccount(senderKey);
-      const memo = `agent:${selectedAgent.id}`.slice(0, 28); // Stellar memo text limit is 28 bytes
+      const memo = `agent:${selectedAgent.id}`.slice(0, STELLAR_MEMO_MAX_LENGTH);
 
       const tx = new StellarSdk.TransactionBuilder(senderAccount, {
         fee: StellarSdk.BASE_FEE,
@@ -411,7 +418,7 @@ function PaymentExecutorSection({ walletAddress }: { walletAddress: string }) {
       }
 
       setInvoice({
-        invoiceNumber: `INV-${Date.now().toString(36).toUpperCase()}`,
+        invoiceNumber: generateInvoiceNumber(),
         agentId: selectedAgent.id,
         agentName: selectedAgent.name,
         task: taskPrompt,
