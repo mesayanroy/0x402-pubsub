@@ -198,11 +198,10 @@ export async function POST(
         caller_wallet: callerWallet || null,
         caller_ip: req.headers.get('x-forwarded-for') || null,
         input_payload: { input },
-        output_response: { output },
+        output_payload: { output },
         payment_tx_hash: paymentTxHash,
         tx_explorer_url: paymentTxHash ? explorerUrl(paymentTxHash) : null,
         payment_amount_xlm: paymentTxHash ? agent.price_xlm : 0,
-        protocol: '0x402',
         status: 'success',
         latency_ms: latencyMs,
       });
@@ -222,9 +221,8 @@ export async function POST(
             amount_xlm: agent.price_xlm,
             tx_hash: paymentTxHash,
             tx_explorer_url: txExplorerUrl,
-            status: 'paid',
           },
-          { onConflict: 'tx_hash' }
+          { onConflict: 'request_id' }
         );
       }
 

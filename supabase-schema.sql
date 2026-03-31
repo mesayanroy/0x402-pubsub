@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS public.agents (
   name TEXT NOT NULL,
   description TEXT,
   tags TEXT[],
+  model TEXT DEFAULT 'openai-gpt4o-mini',
+  system_prompt TEXT DEFAULT '',
   tools JSONB DEFAULT '[]',
   price_xlm NUMERIC(10,4) DEFAULT 0.01,
   visibility TEXT DEFAULT 'public' CHECK (visibility IN ('public', 'private', 'forked')),
@@ -26,8 +28,20 @@ CREATE TABLE IF NOT EXISTS public.agents (
   api_endpoint TEXT,
   api_key TEXT,
   soroban_contract_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
+  total_requests BIGINT DEFAULT 0,
+  total_earned_xlm NUMERIC(16,4) DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Add missing columns to existing agents table (idempotent migrations)
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS model TEXT DEFAULT 'openai-gpt4o-mini';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS system_prompt TEXT DEFAULT '';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS total_requests BIGINT DEFAULT 0;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS total_earned_xlm NUMERIC(16,4) DEFAULT 0;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
 -- AGENT REQUESTS
 CREATE TABLE IF NOT EXISTS public.agent_requests (
@@ -38,9 +52,17 @@ CREATE TABLE IF NOT EXISTS public.agent_requests (
   input_payload JSONB,
   output_payload JSONB,
   payment_tx_hash TEXT,
+  payment_amount_xlm NUMERIC(12,4) DEFAULT 0,
+  latency_ms INTEGER,
+  tx_explorer_url TEXT,
   status TEXT DEFAULT 'pending',
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Add missing columns to existing agent_requests table (idempotent migrations)
+ALTER TABLE public.agent_requests ADD COLUMN IF NOT EXISTS payment_amount_xlm NUMERIC(12,4) DEFAULT 0;
+ALTER TABLE public.agent_requests ADD COLUMN IF NOT EXISTS latency_ms INTEGER;
+ALTER TABLE public.agent_requests ADD COLUMN IF NOT EXISTS tx_explorer_url TEXT;
 
 -- INVOICES
 CREATE TABLE IF NOT EXISTS public.invoices (
@@ -50,9 +72,15 @@ CREATE TABLE IF NOT EXISTS public.invoices (
   owner_wallet TEXT NOT NULL,
   caller_wallet TEXT,
   amount_xlm NUMERIC(12,4) NOT NULL,
+  tx_hash TEXT,
+  tx_explorer_url TEXT,
   payment_tx_hash TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Add missing columns to existing invoices table (idempotent migrations)
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS tx_explorer_url TEXT;
 
 -- AGENT FORKS
 CREATE TABLE IF NOT EXISTS public.agent_forks (
@@ -85,6 +113,9 @@ ON public.agents(owner_wallet);
 DROP INDEX IF EXISTS idx_agents_visibility;
 CREATE INDEX IF NOT EXISTS idx_agents_visibility
 ON public.agents(visibility);
+
+CREATE INDEX IF NOT EXISTS idx_agents_is_active
+ON public.agents(is_active);
 
 -- Agent Requests
 DROP INDEX IF EXISTS idx_agent_requests_agent;
@@ -119,17 +150,3 @@ ALTER TABLE public.agent_requests DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invoices DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_forks DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.api_keys DISABLE ROW LEVEL SECURITY;
-
--- check table exists
-select table_name
-from information_schema.tables
-where table_schema = 'public'
-  and table_name in ('users','agents','agent_requests','invoices','agent_forks','api_keys');
-
-insert into public.agents (owner_wallet, name)
-values ('TEST_WALLET', 'Agent One')
-returning id, owner_wallet, name;
-
-select * from public.agents limit 5;
-
-(SELECT wallet_address FROM public.users WHERE id = auth.uid())

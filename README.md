@@ -13,8 +13,8 @@ Users connect their Freighter wallet, build custom AI agents, monetize them on-c
 ## Tech Stack
 
 - **Frontend**: Next.js 15 (App Router), TypeScript, TailwindCSS, Framer Motion
-- **Wallet**: Stellar Freighter Wallet SDK (`@stellar/freighter-api`)
-- **Blockchain**: Stellar network — smart contracts in Soroban (Rust)
+- **Wallet**: Multi-wallet support via `WalletConnect` modal — Freighter, LOBSTR, xBull, Albedo
+- **Blockchain**: Stellar network — two Soroban smart contracts (AgentRegistry + AgentValidator) with inter-contract calls
 - **Database**: Supabase (PostgreSQL)
 - **AI Backends**: OpenAI GPT-4o-mini + Anthropic Claude Haiku
 - **Payments**: 0x402 protocol for per-request payments in XLM
@@ -91,19 +91,75 @@ Open [http://localhost:3000](http://localhost:3000).
 4. Client retries with `X-Payment-Tx-Hash` header
 5. Server verifies via Stellar Horizon API and runs agent
 
-## Smart Contract
+## Smart Contracts
 
-The `AgentRegistry` Soroban contract is in `contracts/agent_registry/`. Deploy with:
+Two Soroban contracts live in `contracts/`. Deploy both with:
 
 ```bash
 chmod +x contracts/deploy.sh
 ./contracts/deploy.sh
 ```
 
+### AgentRegistry (`contracts/agent_registry/`)
+
+Core on-chain registry. Stores agent metadata, counts requests, and emits events for every paid call.
+
+| Method | Description |
+|---|---|
+| `register_agent(owner, agent_id, price_xlm, metadata_hash)` | Register a new agent |
+| `pay_for_request(caller, agent_id, amount)` | Record a paid 0x402 request |
+| `fork_agent(caller, original_id, new_id)` | Fork an existing agent |
+| `get_agent(agent_id)` | Read agent data |
+| `update_price(owner, agent_id, new_price)` | Update per-request price |
+
+### AgentValidator (`contracts/agent_validator/`)
+
+Deployment gatekeeper that makes **inter-contract calls** to AgentRegistry.
+
+| Method | Description |
+|---|---|
+| `initialize(admin, registry)` | Link validator to AgentRegistry |
+| `validate_wallet(deployer, agent_id)` | **Inter-contract READ** — checks registry for duplicate agent_id |
+| `request_deploy(deployer, agent_id, metadata_hash, price_stroops)` | Store pending deployment intent on-chain |
+| `confirm_deploy(deployer, agent_id, signature_hash)` | **Inter-contract WRITE** — calls `AgentRegistry::register_agent` |
+| `is_confirmed(agent_id)` | Check if agent passed on-chain validation |
+| `get_pending(agent_id)` | Read pending deployment record |
+
+### Inter-Contract Call Architecture
+
+```
+Browser / CLI
+    │
+    ▼
+POST /api/agents/validate-deploy          ← builds Soroban XDR tx
+    │ returns unsigned tx XDR
+    ▼
+Freighter Wallet (user signs)
+    │ returns signed XDR
+    ▼
+POST /api/agents/confirm-deploy           ← submits to Horizon, builds confirm tx
+    │ returns confirm XDR
+    ▼
+Freighter Wallet (user signs confirm tx)
+    │ signed confirm XDR
+    ▼
+Stellar Horizon ── submits tx ──▶ AgentValidator::confirm_deploy
+                                         │
+                                         │ env.invoke_contract()  ← INTER-CONTRACT CALL
+                                         ▼
+                                   AgentRegistry::register_agent
+                                         │
+                                         ▼
+                              Agent registered on-chain ✅
+```
+
+**Proof of inter-contract call** — the Soroban `env.invoke_contract` / `env.try_invoke_contract` calls in `contracts/agent_validator/src/lib.rs` (the `registry_client` module) are the on-chain cross-contract dispatch. The `confirm_deploy` entry point cannot succeed without successfully calling `AgentRegistry::register_agent`.
+
 > **Contract IDs (Testnet)**
 > | Contract | ID |
 > |---|---|
-> | AgentRegistry | *(set after first deploy — see `contracts/deploy.sh` output)* |
+> | AgentRegistry | `CDTLE6RKAXDXMKDTBLNXYQFIDQKXFM4ARYBX6DG6XDHJPXRESIJEL3MU` |
+> | AgentValidator | *(set after deploy — see `NEXT_PUBLIC_SOROBAN_VALIDATOR_ID`)* |
 
 ## Demo Agent IDs
 
@@ -123,7 +179,10 @@ chmod +x contracts/deploy.sh
 - `GET /api/agents/list` — List public agents
 - `GET /api/agents/[id]` — Get agent by ID
 - `POST /api/agents/[id]/run` — Run agent (0x402)
+- `POST /api/agents/validate-deploy` — Build Soroban validation transaction XDR
+- `POST /api/agents/confirm-deploy` — Submit + build confirm_deploy transaction XDR
 - `POST /api/payment/verify` — Verify Stellar tx
+- `GET /api/dashboard/analytics` — Dashboard PnL + 0x402 request metrics
 - `GET /api/ably/token` — Ably auth token (returns 503 gracefully when not configured)
 
 ## Docker
