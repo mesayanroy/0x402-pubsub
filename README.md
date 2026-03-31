@@ -1,215 +1,211 @@
-# AgentForge — 0x402 / Pub/Sub AI Agent Marketplace
+# AgentForge — Autonomous AI Commerce On Stellar
 
 [![CI / CD](https://github.com/mesayanroy/0x402-pubsub/actions/workflows/ci.yml/badge.svg)](https://github.com/mesayanroy/0x402-pubsub/actions/workflows/ci.yml)
 
-**AgentForge (Xylem)** is a Web3-native AI agent marketplace and builder platform on the Stellar blockchain.
+AgentForge is a full-stack protocol and product for building, deploying, monetizing, and executing AI agents with verifiable payment rails on Stellar.
 
-## Overview
+It combines:
+- Soroban contracts for on-chain registry and deployment validation
+- HTTP 402-inspired pay-per-request execution in XLM
+- Wallet-signature UX with Freighter
+- Realtime pub/sub pipeline for events and analytics
+- Agent marketplace, fork economy, workflow executor, and trading surface
 
-Users connect their Freighter wallet, build custom AI agents, monetize them on-chain, and every agent API request is metered and paid using the 0x402 AI-to-AI payment protocol. A live trading dashboard lets users test their XLM on the Stellar DEX directly from the UI — no CLI required.
+## Why This Project Exists
 
-<img width="375" height="586" alt="image" src="https://github.com/user-attachments/assets/21b0155a-ecfe-4ec3-a319-8a0f32eee2b6" />
+AI agents are easy to build but hard to monetize safely across open networks. Traditional API keys and off-chain billing create trust gaps:
+- No atomic link between payment and execution
+- No shared payment standard between autonomous clients
+- No transparent, verifiable evidence that value moved
 
-## Tech Stack
+AgentForge addresses this by pairing 0x402 style payment negotiation with Stellar transactions and on-chain policy enforcement.
 
-- **Frontend**: Next.js 15 (App Router), TypeScript, TailwindCSS, Framer Motion
-- **Wallet**: Multi-wallet support via `WalletConnect` modal — Freighter, LOBSTR, xBull, Albedo
-- **Blockchain**: Stellar network — two Soroban smart contracts (AgentRegistry + AgentValidator) with inter-contract calls
-- **Database**: Supabase (PostgreSQL)
-- **AI Backends**: OpenAI GPT-4o-mini + Anthropic Claude Haiku
-- **Payments**: 0x402 protocol for per-request payments in XLM
-- **Realtime**: Ably pub/sub (optional) + Upstash QStash consumers
-- **Containerisation**: Docker + Docker Compose
+## Why Stellar (and Soroban)
 
-## Getting Started
+Stellar is a strong fit for machine-to-machine micro-payments and agent marketplaces:
+- Fast finality and low fees for frequent small-value API calls
+- Mature account model and strong wallet ecosystem (Freighter)
+- Great UX for memo-tagged payments, which map naturally to request IDs
+- Soroban smart contracts for deterministic validation and inter-contract control
+- Publicly verifiable transaction proofs through Horizon / Explorer
 
-### 1. Install dependencies
+## Core Capabilities
 
-```bash
-npm install
+- Build custom agents with model, prompt, tools, visibility, and pricing
+- Register agents with validator + registry contract flow
+- Run agents through a 402 payment challenge-response mechanism
+- Fork marketplace agents with paid fork transactions
+- Execute paid workflow tasks with invoices and explorer proofs
+- Track activity in dashboard and live feed components
+
+## High-Level Architecture
+
+```mermaid
+flowchart LR
+  U[User + Freighter Wallet] --> FE[Next.js App Router UI]
+  FE --> API[API Routes / Server Actions]
+  API --> SUPA[(Supabase)]
+  API --> AI[OpenAI + Anthropic]
+  API --> HZ[Stellar Horizon]
+  API --> VAL[AgentValidator Contract]
+  VAL -->|invoke_contract| REG[AgentRegistry Contract]
+  API --> ABLY[Ably Realtime]
+  API --> Q[QStash Consumers]
+  Q --> SUPA
+  ABLY --> FE
 ```
 
-### 2. Configure environment variables
+## End-To-End Workflow (Start To Finish)
 
-Copy `.env.example` to `.env.local` and fill in your values:
+### 1) Wallet Connect And Identity
+1. User opens the app and connects Freighter (or other supported wallet).
+2. Public key is stored locally for session-scoped UX and request signing context.
+
+### 2) Agent Build + On-Chain Validation
+1. User configures agent metadata (name/model/prompt/price/visibility/tools).
+2. `POST /api/agents/validate-deploy` builds a Soroban validation transaction (XDR).
+3. User signs in wallet.
+4. `POST /api/agents/confirm-deploy` submits and prepares confirmation call.
+5. Validator contract confirms and performs inter-contract call to registry.
+6. Agent metadata is persisted to Supabase for app indexing and search.
+
+### 3) Marketplace Listing + Fork Economy
+1. Public agents appear in marketplace cards.
+2. Consumer can fork an existing agent by paying fork fee in XLM.
+3. Memo ties payment to fork action (`fork:<agent-or-request-id>`).
+4. Forked configuration can be customized before first execution.
+
+### 4) 0x402 Request Execution
+1. Client calls `POST /api/agents/[id]/run` with prompt input.
+2. If unpaid, server returns payment challenge (402 semantics + payment details).
+3. Wallet signs and submits Stellar payment.
+4. Client retries with tx hash and wallet headers.
+5. Server verifies payment via Horizon and executes selected model.
+6. Request, billing, and runtime stats are persisted.
+
+### 5) Trading + Workflow Executor
+1. Trading page simulates strategy actions with XLM-centric UX.
+2. Workflow page batches paid task executions and wallet approvals.
+3. Invoice card records amount, tx hash, payer, timestamp, and explorer link.
+
+### 6) Observability And Analytics
+1. Realtime events stream through Ably/QStash pipeline.
+2. Dashboard aggregates request counts, billing, and latency surfaces.
+3. Explorer links provide independent payment proof.
+
+## Smart Contracts
+
+### AgentValidator (`contracts/agent_validator`)
+- Validates deploy intent and confirmation signatures
+- Manages pending deployment state
+- Performs inter-contract call into registry during confirmation
+
+### AgentRegistry (`contracts/agent_registry`)
+- Canonical on-chain index for registered agents
+- Holds pricing/ownership metadata and request accounting hooks
+- Serves as the source of truth for validator cross-contract checks
+
+### Inter-Contract Call Flow
+
+```text
+Client -> validate-deploy API -> sign tx -> confirm-deploy API
+-> AgentValidator.confirm_deploy(...)
+-> invoke_contract(AgentRegistry.register_agent(...))
+-> on-chain registration success
+```
+
+## Verified Transaction Evidence
+
+Primary proof transaction (fork payment):
+- Tx ID: `0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541`
+- Explorer: https://stellar.expert/explorer/testnet/tx/0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541
+- Status: successful
+- Memo observed: `fork:d211defa-57a7-4f41-b08d`
+- Amount observed: `0.1 XLM`
+- Fee charged: `0.00001 XLM`
+
+## Validation Screens (Important One-Liners)
+
+1. Freighter fork confirmation proves user-signed payment authorization before marketplace fork completes.
+2. Stellar Expert receipt confirms fork tx finality, ledger inclusion, memo integrity, and signature validity.
+3. Marketplace success banner shows app-level acknowledgment wired to confirmed chain payment.
+4. Run-agent payment modal demonstrates 402 challenge-response UX tied to wallet signature.
+5. Agent run summary shows billed amount and runtime metadata linked to the paid execution path.
+6. Build step validation modal proves deploy flow requires explicit wallet approval before contract submission.
+7. Confirm-deploy warning state highlights guarded confirmation path for potentially failing preconditions.
+8. Trading surface demonstrates XLM-focused strategy execution context integrated with wallet identity.
+9. Workflow executor waiting state proves asynchronous task orchestration blocked on wallet payment signature.
+10. Workflow invoice panel provides structured proof payload: tx hash, payer, amount, timestamp, explorer link.
+11. Dashboard panels aggregate monetization telemetry and request analytics after protocol interactions.
+
+## API Surface
+
+- `POST /api/agents/create`
+- `GET /api/agents/list`
+- `GET /api/agents/[id]`
+- `POST /api/agents/[id]/run`
+- `POST /api/agents/validate-deploy`
+- `POST /api/agents/confirm-deploy`
+- `POST /api/agents/submit-confirmation`
+- `POST /api/payment/verify`
+- `GET /api/dashboard/analytics`
+- `GET /api/dashboard/requests`
+- `GET /api/ably/token`
+
+## Local Development
+
+### Prerequisites
+- Node.js 18+
+- pnpm 10+
+- Freighter wallet (for end-to-end payment/deploy tests)
+- Supabase project (recommended for full mode)
+
+### Install
+
+```bash
+pnpm install
+```
+
+### Configure Environment
+
+Create local env and fill your own keys (never commit secrets):
 
 ```bash
 cp .env.example .env.local
 ```
 
-Key variables:
-
-| Variable | Description |
-|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server only) |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `ABLY_API_KEY` | Ably realtime key *(optional — gracefully disabled if absent)* |
-| `QSTASH_TOKEN` | Upstash QStash token *(optional)* |
-| `NEXT_PUBLIC_STELLAR_NETWORK` | `testnet` (default) or `mainnet` |
-| `NEXT_PUBLIC_HORIZON_URL` | Stellar Horizon endpoint |
-
-### 3. Set up Supabase
-
-Run `supabase-schema.sql` in your Supabase SQL editor.
-
-### 4. Run the development server
+### Run
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
-
-## Pages
-
-| Route | Description |
-|-------|-------------|
-| `/` | Landing page with hero, stats, features |
-| `/agents` | Browse all deployed agents (marketplace grid) |
-| `/agents/[id]` | Agent detail with API docs, try it live, fork |
-| `/build` | 3-step agent builder wizard (draft auto-saved to localStorage) |
-| `/trading` | **Live trading page** — XLM/USDC chart, Breakout Lines, TP/SL, TVL, buy/sell, collateral, leverage, agent SDK templates |
-| `/dashboard` | User dashboard: my agents, earnings in XLM, invoice stream |
-| `/marketplace` | Featured + trending agents with owner profile links |
-| `/docs` | Developer documentation + 0x402 guide |
-| `/devs` | Developer hub: SDK snippets, webhooks |
-| `/about` | About the project and architecture |
-
-## 0x402 Payment Flow
-
-1. Client calls `POST /api/agents/{id}/run`
-2. Server returns HTTP 402 with payment headers:
-   - `X-Payment-Required: xlm`
-   - `X-Payment-Amount: {price_xlm}`
-   - `X-Payment-Address: {agent_owner_address}`
-   - `X-Payment-Network: stellar`
-   - `X-Payment-Memo: agent:{id}:req:{nonce}`
-3. Client signs XLM payment transaction via Freighter
-4. Client retries with `X-Payment-Tx-Hash` header
-5. Server verifies via Stellar Horizon API and runs agent
-
-## Smart Contracts
-
-Two Soroban contracts live in `contracts/`. Deploy both with:
+### Build
 
 ```bash
-chmod +x contracts/deploy.sh
-./contracts/deploy.sh
+pnpm run lint
+pnpm exec tsc --noEmit
+pnpm run build
 ```
 
-### AgentRegistry (`contracts/agent_registry/`)
+## CI/CD Pipeline
 
-Core on-chain registry. Stores agent metadata, counts requests, and emits events for every paid call.
+Workflow file: `.github/workflows/ci.yml`
 
-| Method | Description |
-|---|---|
-| `register_agent(owner, agent_id, price_xlm, metadata_hash)` | Register a new agent |
-| `pay_for_request(caller, agent_id, amount)` | Record a paid 0x402 request |
-| `fork_agent(caller, original_id, new_id)` | Fork an existing agent |
-| `get_agent(agent_id)` | Read agent data |
-| `update_price(owner, agent_id, new_price)` | Update per-request price |
+1. `lint-and-type-check`: ESLint CLI + TypeScript noEmit
+2. `build`: Next production build + artifact upload
+3. `docker-build`: Docker buildx image build (no push)
 
-### AgentValidator (`contracts/agent_validator/`)
+This pipeline ensures code quality, type safety, production build integrity, and deploy parity.
 
-Deployment gatekeeper that makes **inter-contract calls** to AgentRegistry.
+## Security Notes
 
-| Method | Description |
-|---|---|
-| `initialize(admin, registry)` | Link validator to AgentRegistry |
-| `validate_wallet(deployer, agent_id)` | **Inter-contract READ** — checks registry for duplicate agent_id |
-| `request_deploy(deployer, agent_id, metadata_hash, price_stroops)` | Store pending deployment intent on-chain |
-| `confirm_deploy(deployer, agent_id, signature_hash)` | **Inter-contract WRITE** — calls `AgentRegistry::register_agent` |
-| `is_confirmed(agent_id)` | Check if agent passed on-chain validation |
-| `get_pending(agent_id)` | Read pending deployment record |
+- `.env.local` and `.env.local.bak` are ignored and must remain local only.
+- Never commit API keys, private keys, or service-role secrets.
+- If a key is ever exposed, rotate it immediately.
 
-### Inter-Contract Call Architecture
+## Project Vision
 
-```
-Browser / CLI
-    │
-    ▼
-POST /api/agents/validate-deploy          ← builds Soroban XDR tx
-    │ returns unsigned tx XDR
-    ▼
-Freighter Wallet (user signs)
-    │ returns signed XDR
-    ▼
-POST /api/agents/confirm-deploy           ← submits to Horizon, builds confirm tx
-    │ returns confirm XDR
-    ▼
-Freighter Wallet (user signs confirm tx)
-    │ signed confirm XDR
-    ▼
-Stellar Horizon ── submits tx ──▶ AgentValidator::confirm_deploy
-                                         │
-                                         │ env.invoke_contract()  ← INTER-CONTRACT CALL
-                                         ▼
-                                   AgentRegistry::register_agent
-                                         │
-                                         ▼
-                              Agent registered on-chain ✅
-```
+AgentForge demonstrates that autonomous software can be monetized transparently when identity, payment, and execution are composed as one protocol surface.
 
-**Proof of inter-contract call** — the Soroban `env.invoke_contract` / `env.try_invoke_contract` calls in `contracts/agent_validator/src/lib.rs` (the `registry_client` module) are the on-chain cross-contract dispatch. The `confirm_deploy` entry point cannot succeed without successfully calling `AgentRegistry::register_agent`.
-
-> **Contract IDs (Testnet)**
-> | Contract | ID |
-> |---|---|
-> | AgentRegistry | `CDTLE6RKAXDXMKDTBLNXYQFIDQKXFM4ARYBX6DG6XDHJPXRESIJEL3MU` |
-> | AgentValidator | *(set after deploy — see `NEXT_PUBLIC_SOROBAN_VALIDATOR_ID`)* |
-
-## Demo Agent IDs
-
-| Agent | ID |
-|---|---|
-| DeFi Analyst | `1` |
-| Code Review Bot | `2` |
-| Smart Contract Auditor | `3` |
-| XLM Trading Bot | `4` |
-| Soroban Dev Assistant | `5` |
-
-> These IDs are available in demo mode (no Supabase required). When Supabase is configured, agents receive a UUID.
-
-## API Routes
-
-- `POST /api/agents/create` — Deploy a new agent
-- `GET /api/agents/list` — List public agents
-- `GET /api/agents/[id]` — Get agent by ID
-- `POST /api/agents/[id]/run` — Run agent (0x402)
-- `POST /api/agents/validate-deploy` — Build Soroban validation transaction XDR
-- `POST /api/agents/confirm-deploy` — Submit + build confirm_deploy transaction XDR
-- `POST /api/payment/verify` — Verify Stellar tx
-- `GET /api/dashboard/analytics` — Dashboard PnL + 0x402 request metrics
-- `GET /api/ably/token` — Ably auth token (returns 503 gracefully when not configured)
-
-## Docker
-
-Build and run with Docker Compose:
-
-```bash
-# Copy and fill in secrets
-cp .env.example .env
-
-# Build image and start services
-docker compose up --build -d
-
-# View logs
-docker compose logs -f web
-```
-
-The `web` service listens on port **3000**. An optional `consumers` service runs the QStash background workers.
-
-## CI / CD
-
-The repository ships a GitHub Actions workflow at `.github/workflows/ci.yml`.
-
-| Job | Trigger | What it does |
-|---|---|---|
-| `lint-and-type-check` | every push / PR | `next lint` + TypeScript checks |
-| `build` | after lint passes | `next build`, uploads `.next/` artefact |
-| `docker-build` | pushes to `main` | Builds Docker image (cached) |
-
-To enable Vercel auto-deploy, uncomment the `deploy-preview` job and add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` to repository secrets.
+By building on Stellar, the project converts abstract AI usage into verifiable economic events that users, builders, and integrators can trust.
