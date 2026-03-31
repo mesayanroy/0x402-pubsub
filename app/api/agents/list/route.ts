@@ -37,9 +37,11 @@ export async function GET(req: NextRequest) {
       .limit(limit);
 
     if (owner) {
+      // Dashboard owner view: include all agents (public, private, forked)
       query = query.eq('owner_wallet', owner);
     } else {
-      query = query.eq('visibility', 'public');
+      // Marketplace view: public + forked agents
+      query = query.in('visibility', ['public', 'forked']);
     }
 
     if (model) query = query.eq('model', model);

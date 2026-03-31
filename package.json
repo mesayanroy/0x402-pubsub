@@ -14,10 +14,11 @@
     "cli": "npx ts-node --project tsconfig.json cli/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@creit.tech/stellar-wallets-kit": "^2.1.0",
     "@mdx-js/loader": "^3.1.1",
     "@mdx-js/react": "^3.1.1",
     "@next/mdx": "^15.5.4",
-    "@anthropic-ai/sdk": "^0.80.0",
     "@stellar/freighter-api": "^6.0.1",
     "@supabase/supabase-js": "^2.99.2",
     "@types/three": "^0.183.1",

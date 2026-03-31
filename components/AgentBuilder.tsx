@@ -79,14 +79,38 @@ function clearDraft() {
   }
 }
 
+type DeployPhase =
+  | 'idle'
+  | 'building_tx'
+  | 'awaiting_validation_sig'
+  | 'submitting_validation'
+  | 'awaiting_confirm_sig'
+  | 'submitting_confirm'
+  | 'saving'
+  | 'done';
+
+const PHASE_LABELS: Record<DeployPhase, string> = {
+  idle: '🚀 Deploy Agent',
+  building_tx: 'Building transaction…',
+  awaiting_validation_sig: '🔏 Sign validation in wallet…',
+  submitting_validation: 'Submitting to Stellar…',
+  awaiting_confirm_sig: '🔏 Sign confirmation in wallet…',
+  submitting_confirm: 'Confirming on-chain…',
+  saving: 'Saving to database…',
+  done: '✅ Deployed!',
+};
+
 export default function AgentBuilder() {
   const router = useRouter();
   const [step, setStep] = useState<Step>('configure');
   const [form, setForm] = useState<AgentFormData>(initialData);
-  const [deploying, setDeploying] = useState(false);
+  const [deployPhase, setDeployPhase] = useState<DeployPhase>('idle');
   const [deployedAgent, setDeployedAgent] = useState<{ id: string; apiKey: string; endpoint: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
+  const [onChainTxHash, setOnChainTxHash] = useState<string | null>(null);
+
+  const deploying = deployPhase !== 'idle' && deployPhase !== 'done';
 
   // Hydrate from localStorage on mount (client only)
   useEffect(() => {
@@ -119,17 +143,127 @@ export default function AgentBuilder() {
     }));
   };
 
+  const signTxWithFreighter = async (
+    txXdr: string,
+    networkPassphrase: string
+  ): Promise<string> => {
+    const freighter = await import('@stellar/freighter-api');
+    const { signedTxXdr, error } = await freighter.signTransaction(txXdr, {
+      networkPassphrase,
+    });
+    if (error || !signedTxXdr) {
+      throw new Error((error as { message?: string } | null)?.message || 'Freighter signing failed');
+    }
+    return signedTxXdr;
+  };
+
   const handleDeploy = async () => {
-    setDeploying(true);
     setError(null);
+    setOnChainTxHash(null);
+
+    const walletAddress = localStorage.getItem('wallet_address');
+    if (!walletAddress) {
+      setError('Please connect your wallet first.');
+      return;
+    }
+
+    const agentId = `${form.name.toLowerCase().replace(/\s+/g, '_').slice(0, 24)}_${Date.now()}`;
+    const metadataHash = btoa(JSON.stringify({ name: form.name, model: form.model })).slice(0, 32);
+
     try {
-      const walletAddress = localStorage.getItem('wallet_address');
-      if (!walletAddress) {
-        setError('Please connect your wallet first.');
-        return;
+      // ── Step 1: Build validation + request_deploy transaction ─────────────
+      setDeployPhase('building_tx');
+
+      const validateRes = await fetch('/api/agents/validate-deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deployer_wallet: walletAddress,
+          agent_id: agentId,
+          metadata_hash: metadataHash,
+          price_xlm: parseFloat(form.priceXlm),
+        }),
+      });
+
+      const validateData = await validateRes.json() as {
+        status: string;
+        tx_xdr?: string;
+        network_passphrase?: string;
+        validation_message: string;
+        error?: string;
+      };
+
+      if (!validateRes.ok) {
+        throw new Error(validateData.error || 'Validation transaction failed');
       }
 
-      const res = await fetch('/api/agents/create', {
+      const validationMessage = validateData.validation_message;
+      let signedValidateTxXdr = '';
+
+      if (validateData.tx_xdr && validateData.network_passphrase) {
+        // ── Step 2: Sign validation transaction in user's wallet ─────────────
+        setDeployPhase('awaiting_validation_sig');
+        signedValidateTxXdr = await signTxWithFreighter(
+          validateData.tx_xdr,
+          validateData.network_passphrase
+        );
+      }
+
+      // ── Step 3: Submit signed tx + get confirm_deploy XDR ─────────────────
+      setDeployPhase('submitting_validation');
+
+      const confirmRes = await fetch('/api/agents/confirm-deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signed_tx_xdr: signedValidateTxXdr,
+          deployer_wallet: walletAddress,
+          agent_id: agentId,
+          validation_message: validationMessage,
+        }),
+      });
+
+      const confirmData = await confirmRes.json() as {
+        status: string;
+        confirm_tx_xdr?: string;
+        network_passphrase?: string;
+        signature_hash?: string;
+        error?: string;
+      };
+
+      if (!confirmRes.ok) {
+        throw new Error(confirmData.error || 'Confirm-deploy request failed');
+      }
+
+      if (confirmData.confirm_tx_xdr && confirmData.network_passphrase) {
+        // ── Step 4: Sign confirm_deploy transaction ──────────────────────────
+        setDeployPhase('awaiting_confirm_sig');
+        const signedConfirmTxXdr = await signTxWithFreighter(
+          confirmData.confirm_tx_xdr,
+          confirmData.network_passphrase
+        );
+
+        // Submit the confirm_deploy signed transaction to Horizon
+        setDeployPhase('submitting_confirm');
+        const horizonUrl = process.env.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+        const horizonRes = await fetch(`${horizonUrl}/transactions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ tx: signedConfirmTxXdr }),
+        });
+
+        if (horizonRes.ok) {
+          const horizonData = await horizonRes.json() as { hash?: string };
+          if (horizonData.hash) {
+            setOnChainTxHash(horizonData.hash);
+          }
+        }
+      }
+
+      // ── Step 5: Save agent to Supabase ────────────────────────────────────
+      setDeployPhase('saving');
+
+      const createRes = await fetch('/api/agents/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -146,18 +280,29 @@ export default function AgentBuilder() {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        const extra = data.details ? ` (${data.details})` : '';
-        throw new Error(`${data.error || 'Deploy failed'}${extra}`);
+      const createData = await createRes.json() as {
+        id?: string;
+        api_key?: string;
+        api_endpoint?: string;
+        error?: string;
+        details?: string;
+      };
+
+      if (!createRes.ok) {
+        const extra = createData.details ? ` (${createData.details})` : '';
+        throw new Error(`${createData.error || 'Deploy failed'}${extra}`);
       }
 
       clearDraft();
-      setDeployedAgent({ id: data.id, apiKey: data.api_key, endpoint: data.api_endpoint });
+      setDeployPhase('done');
+      setDeployedAgent({
+        id: createData.id!,
+        apiKey: createData.api_key!,
+        endpoint: createData.api_endpoint!,
+      });
     } catch (err) {
       setError(String(err));
-    } finally {
-      setDeploying(false);
+      setDeployPhase('idle');
     }
   };
 
@@ -167,6 +312,19 @@ export default function AgentBuilder() {
         <div className="p-6 rounded-xl border border-[rgba(0,255,229,0.2)] bg-[rgba(0,255,229,0.04)]">
           <h3 className="font-syne text-xl font-bold text-[#00FFE5] mb-2">🎉 Agent Deployed!</h3>
           <p className="text-gray-400 text-sm mb-4">Your agent is live on AgentForge.</p>
+          {onChainTxHash && (
+            <div className="mb-4 p-3 rounded-lg border border-[rgba(255,184,0,0.2)] bg-[rgba(255,184,0,0.06)] font-mono text-xs">
+              <span className="text-gray-500">On-chain tx: </span>
+              <a
+                href={`https://stellar.expert/explorer/testnet/tx/${onChainTxHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[#FFB800] hover:underline break-all"
+              >
+                {onChainTxHash.slice(0, 12)}…{onChainTxHash.slice(-12)}
+              </a>
+            </div>
+          )}
           <div className="space-y-3 font-mono text-sm">
             <div>
               <span className="text-gray-500">Endpoint: </span>
@@ -185,7 +343,7 @@ export default function AgentBuilder() {
               View Agent
             </button>
             <button
-              onClick={() => { setDeployedAgent(null); setForm(initialData); setStep('configure'); }}
+              onClick={() => { setDeployedAgent(null); setForm(initialData); setStep('configure'); setDeployPhase('idle'); }}
               className="px-4 py-2 text-sm font-mono border border-[rgba(255,255,255,0.15)] text-gray-400 rounded hover:text-white transition-all"
             >
               Build Another
@@ -195,6 +353,26 @@ export default function AgentBuilder() {
       </div>
     );
   }
+
+  const DEPLOY_PHASES: DeployPhase[] = [
+    'building_tx',
+    'awaiting_validation_sig',
+    'submitting_validation',
+    'awaiting_confirm_sig',
+    'submitting_confirm',
+    'saving',
+  ];
+
+  const DEPLOY_PHASE_LABELS: Record<DeployPhase, string> = {
+    idle: '',
+    building_tx: 'Building Soroban transaction',
+    awaiting_validation_sig: 'Wallet: Sign validation message',
+    submitting_validation: 'Submitting to Stellar Horizon',
+    awaiting_confirm_sig: 'Wallet: Sign confirm_deploy',
+    submitting_confirm: 'Inter-contract call → AgentRegistry',
+    saving: 'Saving agent to database',
+    done: '',
+  };
 
   return (
     <div className="space-y-6">
@@ -452,6 +630,39 @@ export default function AgentBuilder() {
               </div>
             </div>
 
+            {/* On-chain validation flow indicator */}
+            {deploying && (
+              <div className="p-4 rounded-xl border border-[rgba(0,255,229,0.15)] bg-[rgba(0,255,229,0.04)] space-y-2">
+                <p className="font-mono text-xs text-[#00FFE5] font-bold uppercase tracking-widest mb-3">
+                  On-Chain Validation
+                </p>
+                {DEPLOY_PHASES.map((phase, i) => {
+                  const phaseIdx = DEPLOY_PHASES.indexOf(deployPhase);
+                  const thisIdx = i;
+                  const done = thisIdx < phaseIdx;
+                  const active = thisIdx === phaseIdx;
+                  return (
+                    <div key={phase} className="flex items-center gap-2">
+                      <span className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] shrink-0 ${
+                        done
+                          ? 'bg-[#00FFE5] border-[#00FFE5] text-black'
+                          : active
+                          ? 'border-[#00FFE5] text-[#00FFE5] animate-pulse'
+                          : 'border-gray-700 text-gray-700'
+                      }`}>
+                        {done ? '✓' : String(i + 1)}
+                      </span>
+                      <span className={`font-mono text-xs ${
+                        done ? 'text-gray-500 line-through' : active ? 'text-white' : 'text-gray-600'
+                      }`}>
+                        {DEPLOY_PHASE_LABELS[phase]}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {error && (
               <div className="p-3 rounded bg-[rgba(255,69,69,0.1)] border border-red-900 text-red-400 text-xs font-mono">
                 {error}
@@ -461,7 +672,8 @@ export default function AgentBuilder() {
             <div className="flex gap-3">
               <button
                 onClick={() => setStep('prompt')}
-                className="flex-1 py-3 font-mono text-sm border border-[rgba(255,255,255,0.1)] text-gray-400 rounded-lg hover:text-white transition-colors"
+                disabled={deploying}
+                className="flex-1 py-3 font-mono text-sm border border-[rgba(255,255,255,0.1)] text-gray-400 rounded-lg hover:text-white transition-colors disabled:opacity-40"
               >
                 ← Back
               </button>
@@ -470,7 +682,7 @@ export default function AgentBuilder() {
                 disabled={deploying}
                 className="flex-1 py-3 font-mono text-sm bg-[#00FFE5] text-black rounded-lg font-bold hover:bg-[#00e6ce] transition-colors disabled:opacity-50"
               >
-                {deploying ? 'Deploying...' : '🚀 Deploy Agent'}
+                {PHASE_LABELS[deployPhase]}
               </button>
             </div>
           </motion.div>

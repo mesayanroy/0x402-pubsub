@@ -23,8 +23,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
-.env*.local
+# local env files — .env.local is intentionally tracked for development
+# (rotate all keys before moving to production)
 .env
 
 # vercel
