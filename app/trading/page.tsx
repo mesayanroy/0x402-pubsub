@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import CandlestickChart from '@/components/CandlestickChart';
+import CandlestickChart, { CloseEvent } from '@/components/CandlestickChart';
+import type { Agent } from '@/types';
 
 interface OHLC {
   ts: string;
@@ -137,13 +138,24 @@ export default function TradingPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [position, setPosition] = useState<Position | null>(null);
   const [closedPnl, setClosedPnl] = useState<{ pnl: number; pair: string; ts: string } | null>(null);
+  const [closeEvent, setCloseEvent] = useState<CloseEvent | null>(null);
   const [activeTab, setActiveTab] = useState<'chart' | 'agents'>('chart');
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [agentCategory, setAgentCategory] = useState('all');
+  const [agentSubTab, setAgentSubTab] = useState<'templates' | 'mine' | 'arb-demo'>('templates');
+  const [myDeployedAgents, setMyDeployedAgents] = useState<Agent[]>([]);
+  const [loadingMyAgents, setLoadingMyAgents] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  // Arbitrage demo state
+  const [arbRunning, setArbRunning] = useState(false);
+  const [arbStep, setArbStep] = useState(0);
+  const [arbPrices, setArbPrices] = useState({ binance: 0, coinbase: 0 });
+  const [arbResult, setArbResult] = useState<{ profit: number; pair: string } | null>(null);
+  const [sigModalOpen, setSigModalOpen] = useState(false);
+  const [pendingArbTrade, setPendingArbTrade] = useState<{ buyEx: string; sellEx: string; spread: number; spreadPct: number } | null>(null);
 
   const tickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const priceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -210,6 +222,7 @@ export default function TradingPage() {
     const base = FALLBACK_PRICES[selectedPair.coinGeckoId] || 1;
     setCandles(generateHistory(base, 60));
     setPosition(null);
+    setCloseEvent(null);
   }, [selectedPairId, selectedPair.coinGeckoId]);
 
   // Live price tick simulation — restart whenever candles are seeded or pair changes
@@ -232,7 +245,7 @@ export default function TradingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candles.length, selectedPairId]);
 
-  // Load wallet balance
+  // Load wallet balance and user's deployed agents
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
     if (!addr) return;
@@ -245,6 +258,26 @@ export default function TradingPage() {
       } catch { /* ignore */ }
     };
     void load();
+
+    // Fetch user's own deployed agents
+    setLoadingMyAgents(true);
+    fetch(`/api/agents/list?owner=${encodeURIComponent(addr)}`)
+      .then((r) => r.ok ? r.json() : { agents: [] })
+      .then((d: { agents?: Agent[] }) => setMyDeployedAgents(d.agents ?? []))
+      .catch(() => setMyDeployedAgents([]))
+      .finally(() => setLoadingMyAgents(false));
+  }, []);
+
+  // Persist closed trade to localStorage so dashboard can sync immediately
+  const persistClosedTrade = useCallback((pnl: number, pair: string, closeType: 'tp' | 'sl' | 'manual', closePx: number) => {
+    try {
+      const existing: Array<{ pnl: number; pair: string; ts: string; type: string; closePrice: number }> =
+        JSON.parse(localStorage.getItem('trading_pnl_history') ?? '[]');
+      existing.unshift({ pnl, pair, ts: new Date().toISOString(), type: closeType, closePrice: closePx });
+      localStorage.setItem('trading_pnl_history', JSON.stringify(existing.slice(0, 50)));
+      // Dispatch custom event so dashboard (same tab) can update without polling delay
+      window.dispatchEvent(new CustomEvent('trading_pnl_update', { detail: { pnl, pair, type: closeType } }));
+    } catch { /* ignore */ }
   }, []);
 
   const recentHigh = candles.length ? Math.max(...candles.slice(-20).map((c) => c.high)) : 0;
@@ -269,34 +302,42 @@ export default function TradingPage() {
     if (pos.tp && pos.side === 'long' && livePrice >= pos.tp) {
       const tpPnl = (pos.tp - pos.entryPrice) * pos.size * pos.leverage;
       setClosedPnl({ pnl: tpPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.tp, type: 'tp', pnl: tpPnl });
       setOrderSuccess(`🎯 Take Profit hit! PnL: +$${fmtPrice(tpPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(tpPnl, pos.pair, 'tp', pos.tp);
       setPosition(null);
       return;
     }
     if (pos.tp && pos.side === 'short' && livePrice <= pos.tp) {
       const tpPnl = (pos.entryPrice - pos.tp) * pos.size * pos.leverage;
       setClosedPnl({ pnl: tpPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.tp, type: 'tp', pnl: tpPnl });
       setOrderSuccess(`🎯 Take Profit hit! PnL: +$${fmtPrice(tpPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(tpPnl, pos.pair, 'tp', pos.tp);
       setPosition(null);
       return;
     }
     if (pos.sl && pos.side === 'long' && livePrice <= pos.sl) {
       const slPnl = (pos.sl - pos.entryPrice) * pos.size * pos.leverage;
       setClosedPnl({ pnl: slPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.sl, type: 'sl', pnl: slPnl });
       setOrderSuccess(`🛑 Stop Loss triggered. PnL: ${slPnl >= 0 ? '+' : ''}$${fmtPrice(slPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(slPnl, pos.pair, 'sl', pos.sl);
       setPosition(null);
       return;
     }
     if (pos.sl && pos.side === 'short' && livePrice >= pos.sl) {
       const slPnl = (pos.entryPrice - pos.sl) * pos.size * pos.leverage;
       setClosedPnl({ pnl: slPnl, pair: pos.pair, ts: new Date().toISOString() });
+      setCloseEvent({ price: pos.sl, type: 'sl', pnl: slPnl });
       setOrderSuccess(`🛑 Stop Loss triggered. PnL: ${slPnl >= 0 ? '+' : ''}$${fmtPrice(slPnl)} · ${pos.pair.toUpperCase()}`);
+      persistClosedTrade(slPnl, pos.pair, 'sl', pos.sl);
       setPosition(null);
       return;
     }
 
     setPosition((prev) => prev ? { ...prev, unrealisedPnl: pnl } : null);
-  }, [candles]);
+  }, [candles, persistClosedTrade]);
 
   const submitOrder = useCallback(() => {
     setOrderError(null); setOrderSuccess(null);
@@ -323,8 +364,11 @@ export default function TradingPage() {
   const closePosition = () => {
     if (!position) return;
     const pnl = position.unrealisedPnl;
+    const livePrice = candles[candles.length - 1]?.close ?? position.entryPrice;
     setClosedPnl({ pnl, pair: position.pair, ts: new Date().toISOString() });
+    setCloseEvent({ price: livePrice, type: 'manual', pnl });
     setOrderSuccess(`Position closed. PnL: ${pnl >= 0 ? '+' : ''}$${fmtPrice(pnl)} · ${position.pair.toUpperCase()}`);
+    persistClosedTrade(pnl, position.pair, 'manual', livePrice);
     setPosition(null);
   };
 
@@ -435,6 +479,7 @@ export default function TradingPage() {
                     slLevel={position?.sl ?? null}
                     liqLevel={position?.liquidationPrice ?? null}
                     entryLevel={position?.entryPrice ?? null}
+                    closeEvent={closeEvent}
                   />
                 </div>
 
@@ -586,41 +631,58 @@ export default function TradingPage() {
           )}
 
           {activeTab === 'agents' && (
-            <motion.div key="agents" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-              <div className="flex items-center gap-3 flex-wrap">
-                <p className="font-mono text-sm text-gray-400 flex-1">Select an agent template to automate your trading strategy. Each call is metered via the 0x402 protocol.</p>
-                <div className="flex gap-2 flex-wrap">
-                  {['all', 'strategy', 'arbitrage', 'mev', 'monitor'].map((cat) => (
-                    <button key={cat} onClick={() => setAgentCategory(cat)} className={`px-3 py-1 text-[10px] font-mono rounded-full border transition-all ${agentCategory === cat ? 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]' : 'border-white/10 text-gray-500 hover:text-gray-300'}`}>
-                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {filteredAgents.map((agent) => (
-                  <motion.div key={agent.id} whileHover={{ y: -4, boxShadow: '0 0 24px rgba(0,255,229,0.08)' }}
-                    className="rounded-xl border border-[rgba(0,255,229,0.12)] bg-[rgba(255,255,255,0.03)] p-5 flex flex-col gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-syne font-bold text-white text-sm">{agent.name}</h3>
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[agent.category] ?? ''}`}>{agent.category}</span>
-                      </div>
-                      <p className="text-gray-400 text-xs mt-1">{agent.description}</p>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {agent.tags.map((t) => <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(0,255,229,0.06)] text-[#00FFE5] border border-[rgba(0,255,229,0.15)]">#{t}</span>)}
-                    </div>
-                    <div className="flex items-center justify-between mt-auto">
-                      <span className="font-mono text-xs text-[#FFB800]">{agent.priceXlm} XLM/req</span>
-                      <button onClick={() => { setSelectedAgent(agent.id); setActiveTab('chart'); }} className="px-3 py-1 text-xs font-mono border border-[#00FFE5] text-[#00FFE5] rounded hover:bg-[#00FFE5] hover:text-black transition-all">Use</button>
-                    </div>
-                  </motion.div>
+            <motion.div key="agents" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+              {/* Agent sub-tabs */}
+              <div className="flex gap-1 border-b border-white/[0.06] pb-0">
+                {([
+                  { id: 'templates', label: '📦 Agent Templates' },
+                  { id: 'mine', label: '🚀 My Deployed Agents' },
+                  { id: 'arb-demo', label: '⚡ Arbitrage Demo' },
+                ] as const).map((st) => (
+                  <button key={st.id} onClick={() => setAgentSubTab(st.id)}
+                    className={`px-4 py-2 text-xs font-mono border-b-2 transition-all -mb-px ${agentSubTab === st.id ? 'border-[#00FFE5] text-[#00FFE5]' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+                    {st.label}
+                  </button>
                 ))}
               </div>
-              <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5">
-                <h3 className="font-syne text-sm font-bold text-white mb-3">SDK Quick-Start (0x402)</h3>
-                <pre className="font-mono text-xs text-[#00FFE5] overflow-x-auto whitespace-pre-wrap leading-relaxed">{`// npm install @stellar/stellar-sdk ably
+
+              {/* Templates sub-tab */}
+              {agentSubTab === 'templates' && (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="font-mono text-sm text-gray-400 flex-1">Select an agent template to automate your trading strategy. Each call is metered via the 0x402 protocol.</p>
+                    <div className="flex gap-2 flex-wrap">
+                      {['all', 'strategy', 'arbitrage', 'mev', 'monitor'].map((cat) => (
+                        <button key={cat} onClick={() => setAgentCategory(cat)} className={`px-3 py-1 text-[10px] font-mono rounded-full border transition-all ${agentCategory === cat ? 'border-[#00FFE5] text-[#00FFE5] bg-[rgba(0,255,229,0.08)]' : 'border-white/10 text-gray-500 hover:text-gray-300'}`}>
+                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {filteredAgents.map((agent) => (
+                      <motion.div key={agent.id} whileHover={{ y: -4, boxShadow: '0 0 24px rgba(0,255,229,0.08)' }}
+                        className="rounded-xl border border-[rgba(0,255,229,0.12)] bg-[rgba(255,255,255,0.03)] p-5 flex flex-col gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-syne font-bold text-white text-sm">{agent.name}</h3>
+                            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${CATEGORY_COLORS[agent.category] ?? ''}`}>{agent.category}</span>
+                          </div>
+                          <p className="text-gray-400 text-xs mt-1">{agent.description}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {agent.tags.map((t) => <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[rgba(0,255,229,0.06)] text-[#00FFE5] border border-[rgba(0,255,229,0.15)]">#{t}</span>)}
+                        </div>
+                        <div className="flex items-center justify-between mt-auto">
+                          <span className="font-mono text-xs text-[#FFB800]">{agent.priceXlm} XLM/req</span>
+                          <button onClick={() => { setSelectedAgent(agent.id); setActiveTab('chart'); }} className="px-3 py-1 text-xs font-mono border border-[#00FFE5] text-[#00FFE5] rounded hover:bg-[#00FFE5] hover:text-black transition-all">Use</button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                  <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5">
+                    <h3 className="font-syne text-sm font-bold text-white mb-3">SDK Quick-Start (0x402)</h3>
+                    <pre className="font-mono text-xs text-[#00FFE5] overflow-x-auto whitespace-pre-wrap leading-relaxed">{`// npm install @stellar/stellar-sdk ably
 const agentId = '${selectedAgent ?? AGENT_TEMPLATES[0].id}';
 const res = await fetch(\`https://agentforge.dev/api/agents/\${agentId}/run\`, {
   method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -636,7 +698,261 @@ if (res.status === 402) {
   });
   console.log((await paid.json()).output);
 }`}</pre>
-              </div>
+                  </div>
+                </div>
+              )}
+
+              {/* My Deployed Agents sub-tab */}
+              {agentSubTab === 'mine' && (
+                <div className="space-y-4">
+                  <p className="font-mono text-sm text-gray-400">
+                    These are agents you have deployed on AgentForge. Select one to trade with it on the mainnet — every trade order will be routed through your agent endpoint.
+                  </p>
+                  {!walletAddress ? (
+                    <div className="rounded-xl border border-white/[0.06] p-8 text-center font-mono text-xs text-white/30">
+                      Connect your wallet to see your deployed agents.
+                    </div>
+                  ) : loadingMyAgents ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 animate-pulse h-32" />
+                      ))}
+                    </div>
+                  ) : myDeployedAgents.length === 0 ? (
+                    <div className="rounded-xl border border-white/[0.06] p-8 text-center font-mono text-xs text-white/30">
+                      No deployed agents found. Deploy one from the Agents page to get started.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {myDeployedAgents.map((agent) => (
+                        <motion.div key={agent.id} whileHover={{ y: -3, boxShadow: '0 0 20px rgba(0,255,229,0.07)' }}
+                          className={`rounded-xl border p-5 flex flex-col gap-3 cursor-pointer transition-all ${selectedAgent === agent.id ? 'border-[#00FFE5] bg-[rgba(0,255,229,0.06)]' : 'border-white/[0.08] bg-[rgba(255,255,255,0.02)]'}`}
+                          onClick={() => { setSelectedAgent(agent.id); setActiveTab('chart'); }}>
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-syne font-bold text-white text-sm">{agent.name}</h3>
+                            <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full border ${network === 'mainnet' ? 'border-green-700 text-green-400 bg-green-900/20' : 'border-blue-700 text-blue-300 bg-blue-900/20'}`}>
+                              {network === 'mainnet' ? '🌐 Mainnet' : '🔵 Testnet'}
+                            </span>
+                          </div>
+                          <p className="text-gray-400 text-xs flex-1">{agent.description ?? 'Custom deployed agent'}</p>
+                          <div className="flex items-center justify-between mt-auto">
+                            <span className="font-mono text-[10px] text-gray-500">{agent.id.slice(0, 12)}…</span>
+                            <span className="text-[10px] font-mono text-[#00FFE5]">
+                              {selectedAgent === agent.id ? '✓ Selected' : 'Click to select'}
+                            </span>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Arbitrage Demo sub-tab */}
+              {agentSubTab === 'arb-demo' && (
+                <div className="space-y-6">
+                  <div className="rounded-2xl border border-[rgba(255,184,0,0.2)] bg-[rgba(255,184,0,0.04)] p-5">
+                    <h3 className="font-syne text-sm font-bold text-[#FFB800] mb-1">⚡ Arbitrage Agent — Live Demo</h3>
+                    <p className="font-mono text-xs text-gray-400 mb-4">
+                      Watch how the <strong className="text-white">Arbitrage Sentinel</strong> scans two exchanges, detects a price spread, asks for your wallet signature, and executes the cross-exchange trade — all in real time.
+                    </p>
+
+                    {/* Step indicators */}
+                    <div className="flex items-center gap-2 mb-5 flex-wrap">
+                      {['Scan exchanges', 'Detect spread', 'Review trade', 'Sign & execute', 'Result'].map((label, idx) => (
+                        <div key={idx} className="flex items-center gap-1">
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold font-mono transition-all ${arbStep > idx ? 'bg-[#4ade80] text-black' : arbStep === idx ? 'bg-[#FFB800] text-black animate-pulse' : 'bg-white/[0.05] text-gray-600'}`}>
+                            {arbStep > idx ? '✓' : idx + 1}
+                          </div>
+                          <span className={`text-[9px] font-mono hidden sm:inline ${arbStep >= idx ? 'text-white/70' : 'text-gray-600'}`}>{label}</span>
+                          {idx < 4 && <span className="text-gray-700 text-[9px]">›</span>}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Step 0: Start */}
+                    {arbStep === 0 && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          {[{ name: 'Binance', logo: '🟡' }, { name: 'Coinbase', logo: '🔵' }].map((ex) => (
+                            <div key={ex.name} className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3 font-mono text-xs">
+                              <div className="text-gray-500 mb-1">{ex.logo} {ex.name}</div>
+                              <div className="text-gray-600 text-[10px]">Price: scanning…</div>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setArbRunning(true);
+                            setArbStep(1);
+                            const bin = currentPrice * (1 + (Math.random() - 0.5) * 0.004);
+                            const coin = currentPrice * (1 + (Math.random() - 0.5) * 0.004);
+                            setArbPrices({ binance: bin, coinbase: coin });
+                            setTimeout(() => {
+                              setArbStep(2);
+                              const spread = Math.abs(bin - coin);
+                              const spreadPct = (spread / Math.min(bin, coin)) * 100;
+                              const buyEx = bin < coin ? 'Binance' : 'Coinbase';
+                              const sellEx = bin < coin ? 'Coinbase' : 'Binance';
+                              setPendingArbTrade({ buyEx, sellEx, spread, spreadPct });
+                            }, 1800);
+                          }}
+                          disabled={arbRunning}
+                          className="w-full py-2.5 font-mono text-xs font-bold rounded-lg bg-[#FFB800] text-black hover:bg-yellow-400 transition-all disabled:opacity-50">
+                          🔍 Start — Scan {selectedPair.symbol} Prices
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Step 1: Scanning */}
+                    {arbStep === 1 && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          {[{ name: 'Binance', logo: '🟡', price: arbPrices.binance }, { name: 'Coinbase', logo: '🔵', price: arbPrices.coinbase }].map((ex) => (
+                            <div key={ex.name} className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3 font-mono text-xs animate-pulse">
+                              <div className="text-gray-500 mb-1">{ex.logo} {ex.name}</div>
+                              <div className="text-[#00FFE5]">Fetching… ⏳</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="text-center font-mono text-xs text-gray-500">Agent is scanning live order books…</div>
+                      </div>
+                    )}
+
+                    {/* Step 2: Spread detected */}
+                    {arbStep === 2 && pendingArbTrade && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          {[{ name: 'Binance', logo: '🟡', price: arbPrices.binance }, { name: 'Coinbase', logo: '🔵', price: arbPrices.coinbase }].map((ex) => (
+                            <div key={ex.name} className={`rounded-lg border p-3 font-mono text-xs transition-all ${ex.name === pendingArbTrade.buyEx ? 'border-green-700 bg-green-900/10' : 'border-red-900 bg-red-900/10'}`}>
+                              <div className="text-gray-400 mb-1">{ex.logo} {ex.name}</div>
+                              <div className="text-white text-sm font-bold">${fmtPrice(ex.price)}</div>
+                              <div className={`text-[9px] mt-0.5 ${ex.name === pendingArbTrade.buyEx ? 'text-[#4ade80]' : 'text-red-400'}`}>
+                                {ex.name === pendingArbTrade.buyEx ? '← BUY HERE' : '→ SELL HERE'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="rounded-lg border border-[rgba(255,184,0,0.3)] bg-[rgba(255,184,0,0.07)] p-3 font-mono text-xs">
+                          <div className="text-[#FFB800] font-bold mb-1">📊 Spread Detected</div>
+                          <div className="grid grid-cols-2 gap-2 text-gray-300">
+                            <div>Buy on: <span className="text-white">{pendingArbTrade.buyEx}</span></div>
+                            <div>Sell on: <span className="text-white">{pendingArbTrade.sellEx}</span></div>
+                            <div>Spread: <span className="text-[#FFB800]">${fmtPrice(pendingArbTrade.spread)}</span></div>
+                            <div>Spread %: <span className="text-[#4ade80]">{pendingArbTrade.spreadPct.toFixed(3)}%</span></div>
+                          </div>
+                        </div>
+                        <button onClick={() => setArbStep(3)}
+                          className="w-full py-2.5 font-mono text-xs font-bold rounded-lg bg-[#4ade80] text-black hover:bg-green-400 transition-all">
+                          ✓ Review Trade Details →
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Step 3: Review & sign */}
+                    {arbStep === 3 && pendingArbTrade && (
+                      <div className="space-y-3">
+                        <div className="rounded-lg border border-[rgba(0,255,229,0.2)] bg-[rgba(0,255,229,0.04)] p-4 font-mono text-xs space-y-2">
+                          <div className="text-[#00FFE5] font-bold mb-2">📋 Trade Order — Awaiting Your Signature</div>
+                          {[
+                            { label: 'Pair', value: selectedPair.symbol },
+                            { label: 'Action', value: `Buy on ${pendingArbTrade.buyEx} · Sell on ${pendingArbTrade.sellEx}` },
+                            { label: 'Size', value: `${orderAmount} units` },
+                            { label: 'Est. Profit', value: `+$${fmtPrice(pendingArbTrade.spread * parseFloat(orderAmount || '1'))}`, color: 'text-[#4ade80]' },
+                            { label: 'Network', value: network === 'mainnet' ? '🌐 Mainnet (real funds)' : '🔵 Testnet (simulated)', color: network === 'mainnet' ? 'text-[#4ade80]' : 'text-blue-300' },
+                            { label: 'Agent Fee', value: '0.1 XLM via 0x402', color: 'text-[#FFB800]' },
+                          ].map((row) => (
+                            <div key={row.label} className="flex justify-between">
+                              <span className="text-gray-500">{row.label}</span>
+                              <span className={row.color ?? 'text-white'}>{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="font-mono text-[9px] text-gray-600 text-center">
+                          ⚠ Your wallet signature authorises this trade. The agent will not proceed without it.
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => { setArbStep(0); setArbRunning(false); setPendingArbTrade(null); setArbResult(null); }}
+                            className="py-2 font-mono text-xs rounded-lg border border-white/10 text-gray-400 hover:text-white transition-all">
+                            ✕ Cancel
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSigModalOpen(true);
+                              setArbStep(4);
+                              const profit = pendingArbTrade.spread * parseFloat(orderAmount || '1') * (Math.random() > 0.2 ? 1 : -1) * (0.6 + Math.random() * 0.8);
+                              setTimeout(() => {
+                                setSigModalOpen(false);
+                                setArbResult({ profit, pair: selectedPair.symbol });
+                                setArbStep(5);
+                                setArbRunning(false);
+                                persistClosedTrade(profit, selectedPair.id, 'manual', candles[candles.length - 1]?.close ?? currentPrice);
+                              }, 2200);
+                            }}
+                            className="py-2 font-mono text-xs font-bold rounded-lg bg-[#00FFE5] text-black hover:bg-cyan-300 transition-all">
+                            ✍ Sign & Execute
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Step 4: Signing in progress */}
+                    {arbStep === 4 && sigModalOpen && (
+                      <div className="text-center space-y-3 py-4">
+                        <div className="text-4xl animate-bounce">✍</div>
+                        <div className="font-mono text-sm text-[#00FFE5]">Awaiting wallet signature…</div>
+                        <div className="font-mono text-xs text-gray-500">Please confirm the transaction in your wallet</div>
+                        <div className="flex justify-center gap-1 mt-2">
+                          {[0, 1, 2].map((i) => (
+                            <div key={i} className="w-2 h-2 rounded-full bg-[#00FFE5] animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Step 5: Result */}
+                    {arbStep === 5 && arbResult && (
+                      <div className="space-y-3">
+                        <div className={`rounded-xl border p-5 font-mono text-sm text-center ${arbResult.profit >= 0 ? 'border-green-700 bg-green-900/10' : 'border-red-900 bg-red-900/10'}`}>
+                          <div className="text-2xl mb-2">{arbResult.profit >= 0 ? '🎯' : '📉'}</div>
+                          <div className={`font-bold text-lg ${arbResult.profit >= 0 ? 'text-[#4ade80]' : 'text-red-400'}`}>
+                            {arbResult.profit >= 0 ? '+' : ''}${fmtPrice(arbResult.profit)}
+                          </div>
+                          <div className="text-gray-400 text-xs mt-1">
+                            {arbResult.profit >= 0 ? 'Arbitrage profit captured' : 'Spread closed before execution'} · {arbResult.pair.toUpperCase()}
+                          </div>
+                          <div className="text-gray-600 text-[10px] mt-1">Dashboard PnL updated ✓</div>
+                        </div>
+                        <button onClick={() => { setArbStep(0); setArbRunning(false); setPendingArbTrade(null); setArbResult(null); }}
+                          className="w-full py-2 font-mono text-xs rounded-lg border border-white/10 text-gray-400 hover:text-white transition-all">
+                          ↩ Run Another Demo
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* How it works explainer */}
+                  <div className="rounded-2xl border border-white/[0.07] bg-[rgba(5,5,12,0.85)] p-5 space-y-3">
+                    <h3 className="font-syne text-sm font-bold text-white">How Arbitrage Agents Work</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {[
+                        { step: '1', icon: '🔍', title: 'Scan Prices', desc: 'Agent polls multiple CEX APIs (Binance, Coinbase, Kraken) every second for the same asset price.' },
+                        { step: '2', icon: '📊', title: 'Detect Spread', desc: 'When price difference exceeds a configurable threshold (e.g. 0.2%), the opportunity is flagged.' },
+                        { step: '3', icon: '✍', title: 'User Validates', desc: 'Agent presents trade details. You review and sign with your wallet — the agent never holds your keys.' },
+                        { step: '4', icon: '⚡', title: 'Execute & Profit', desc: 'Agent simultaneously buys on the cheaper exchange and sells on the pricier one, capturing the spread.' },
+                      ].map((item) => (
+                        <div key={item.step} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-lg">{item.icon}</span>
+                            <span className="font-syne font-bold text-white text-xs">{item.title}</span>
+                          </div>
+                          <p className="font-mono text-[10px] text-gray-400">{item.desc}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

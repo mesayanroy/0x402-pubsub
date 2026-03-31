@@ -11,6 +11,12 @@ export interface OHLC {
   volume: number;
 }
 
+export interface CloseEvent {
+  price: number;
+  type: 'tp' | 'sl' | 'manual';
+  pnl: number;
+}
+
 interface CandlestickChartProps {
   candles: OHLC[];
   width?: number;
@@ -21,6 +27,7 @@ interface CandlestickChartProps {
   slLevel?: number | null;
   liqLevel?: number | null;
   entryLevel?: number | null;
+  closeEvent?: CloseEvent | null;
   className?: string;
 }
 
@@ -39,6 +46,7 @@ export default function CandlestickChart({
   slLevel,
   liqLevel,
   entryLevel,
+  closeEvent,
   className = '',
 }: CandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,10 +79,11 @@ export default function CandlestickChart({
     const chartW = w - padLeft - padRight;
     const chartH = h - padTop - padBottom;
 
-    // Price range
+    // Price range — extend to include TP/SL/entry/liq/closeEvent so reference lines are never clipped
     const allValues = displayCandles.flatMap((c) => [c.high, c.low]);
-    const minPrice = Math.min(...allValues);
-    const maxPrice = Math.max(...allValues);
+    const refPrices = [tpLevel, slLevel, liqLevel, entryLevel, closeEvent?.price].filter((v): v is number => v != null && v > 0);
+    const minPrice = Math.min(...allValues, ...refPrices);
+    const maxPrice = Math.max(...allValues, ...refPrices);
     const range = maxPrice - minPrice || minPrice * 0.01;
     const pricePad = range * 0.08;
     const lo = minPrice - pricePad;
@@ -134,6 +143,49 @@ export default function CandlestickChart({
     if (liqLevel) drawRefLine(liqLevel, 'rgba(220,38,38,0.9)', 'LIQ');
     if (entryLevel) drawRefLine(entryLevel, 'rgba(0,255,229,0.8)', 'ENTRY', false);
 
+    // Close-event marker: circle + PnL label on the rightmost candle
+    if (closeEvent && closeEvent.price >= lo && closeEvent.price <= hi) {
+      const closeY = py(closeEvent.price);
+      const closeX = px(n - 1);
+      const isProfit = closeEvent.pnl >= 0;
+      const markerColor = closeEvent.type === 'tp' ? '#FFB800' : closeEvent.type === 'sl' ? '#f87171' : '#00FFE5';
+      const pnlLabel = `${closeEvent.type === 'tp' ? '🎯 TP' : closeEvent.type === 'sl' ? '🛑 SL' : '✕ CLOSE'} ${isProfit ? '+' : ''}$${Math.abs(closeEvent.pnl).toFixed(2)}`;
+
+      // Horizontal dashed line at close price
+      ctx.save();
+      ctx.strokeStyle = markerColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(padLeft, closeY);
+      ctx.lineTo(w - padRight, closeY);
+      ctx.stroke();
+
+      // Circle at close position
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.arc(closeX, closeY, 6, 0, Math.PI * 2);
+      ctx.fillStyle = markerColor;
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // PnL label badge
+      ctx.font = 'bold 10px monospace';
+      const labelW = ctx.measureText(pnlLabel).width + 12;
+      const labelX = Math.min(closeX - labelW / 2, w - padRight - labelW);
+      const labelY = closeY - 18;
+      ctx.fillStyle = isProfit ? 'rgba(74,222,128,0.9)' : 'rgba(248,113,113,0.9)';
+      ctx.beginPath();
+      ctx.roundRect(labelX, labelY - 12, labelW, 16, 4);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.textAlign = 'left';
+      ctx.fillText(pnlLabel, labelX + 6, labelY);
+      ctx.restore();
+    }
+
     // Candles
     displayCandles.forEach((candle, i) => {
       const x = px(i);
@@ -175,7 +227,7 @@ export default function CandlestickChart({
       const label = new Date(candle.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
       ctx.fillText(label, px(i), h - 6);
     }
-  }, [displayCandles, height, supportLevel, resistanceLevel, tpLevel, slLevel, liqLevel, entryLevel]);
+  }, [displayCandles, height, supportLevel, resistanceLevel, tpLevel, slLevel, liqLevel, entryLevel, closeEvent]);
 
   return (
     <div ref={containerRef} className={`w-full ${className}`} style={{ height }}>

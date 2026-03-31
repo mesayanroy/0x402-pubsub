@@ -1,120 +1,388 @@
 import PaymentWorkflowDiagram from '@/components/docs/PaymentWorkflowDiagram';
 import BackboneDiagram from '@/components/docs/BackboneDiagram';
 
-# 0x402 Protocol Docs
+<style>{`
+  .docs-layout { display: flex; min-height: 100vh; gap: 0; }
+  .docs-sidebar {
+    width: 240px; min-width: 240px; position: sticky; top: 64px;
+    height: calc(100vh - 64px); overflow-y: auto; padding: 2rem 1rem;
+    border-right: 1px solid rgba(255,255,255,0.07);
+    background: rgba(10,10,15,0.95); backdrop-filter: blur(12px);
+  }
+  .docs-sidebar a {
+    display: block; padding: 0.42rem 0.8rem; border-radius: 6px;
+    font-size: 0.81rem; color: rgba(255,255,255,0.5); text-decoration: none;
+    transition: all 0.15s ease; font-family: var(--font-syne);
+  }
+  .docs-sidebar a:hover { color: #00FFE5; background: rgba(0,255,229,0.07); }
+  .docs-sidebar .nav-group { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.25); text-transform: uppercase; padding: 0.5rem 0.8rem 0.2rem;
+    margin-top: 1.2rem; font-family: var(--font-syne); }
+  .docs-main { flex: 1; min-width: 0; padding: 2.5rem 3rem 4rem; max-width: 900px; }
+  .docs-hero {
+    background: linear-gradient(135deg, rgba(0,255,229,0.06) 0%, rgba(123,97,255,0.04) 100%);
+    border: 1px solid rgba(0,255,229,0.15); border-radius: 12px;
+    padding: 2rem 2.25rem; margin-bottom: 2.5rem;
+  }
+  .docs-hero-tag { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #00FFE5; font-family: var(--font-mono); margin-bottom: 0.6rem; }
+  .docs-hero-title { font-size: 2rem; font-weight: 800; letter-spacing: -0.03em;
+    color: #fff; font-family: var(--font-syne); margin-bottom: 0.5rem; line-height: 1.2; }
+  .docs-hero-sub { font-size: 0.9rem; color: rgba(255,255,255,0.5); line-height: 1.65; max-width: 580px; }
+  .docs-section-title { font-size: 1.15rem; font-weight: 700; color: #fff;
+    font-family: var(--font-syne); margin: 2.25rem 0 1rem;
+    padding-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .docs-p { font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.75; margin-bottom: 0.85rem; }
+  .docs-ol { padding-left: 1.25rem; margin-bottom: 0.85rem; }
+  .docs-ol li { font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.7; margin-bottom: 0.35rem; }
+  .docs-ol li strong { color: rgba(255,255,255,0.88); }
+  .docs-code-block {
+    background: rgba(5,5,8,0.9); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 9px; overflow: hidden; margin: 1rem 0;
+  }
+  .docs-code-block-header {
+    padding: 0.5rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.03); display: flex; align-items: center; gap: 0.5rem;
+  }
+  .docs-code-block-label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.3); font-family: var(--font-mono); text-transform: uppercase; }
+  .docs-code-block pre { padding: 1rem 1.1rem; overflow-x: auto; margin: 0; }
+  .docs-code-block pre code { font-family: var(--font-mono); font-size: 0.78rem;
+    color: rgba(255,255,255,0.75); line-height: 1.65; }
+  .docs-inline-code { font-family: var(--font-mono); font-size: 0.78rem;
+    background: rgba(0,255,229,0.08); color: #00FFE5;
+    padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid rgba(0,255,229,0.15); }
+  .docs-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  .docs-table th { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgba(255,255,255,0.3); font-family: var(--font-syne); text-align: left;
+    padding: 0.5rem 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .docs-table td { font-size: 0.8rem; padding: 0.55rem 0.85rem; color: rgba(255,255,255,0.6);
+    border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .docs-table td:first-child { font-family: var(--font-mono); color: #00FFE5; font-size: 0.76rem; }
+  .docs-table tr:last-child td { border-bottom: none; }
+  details.api-section { border: 1px solid rgba(255,255,255,0.07); border-radius: 10px;
+    margin-bottom: 0.5rem; overflow: hidden; }
+  details.api-section[open] { border-color: rgba(0,255,229,0.2); }
+  details.api-section summary { padding: 0.9rem 1.2rem; cursor: pointer; list-style: none;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.88rem; font-weight: 600; color: rgba(255,255,255,0.8);
+    font-family: var(--font-syne); background: rgba(255,255,255,0.02); user-select: none; }
+  details.api-section summary::-webkit-details-marker { display: none; }
+  details.api-section[open] summary { color: #fff; background: rgba(0,255,229,0.04); }
+  details.api-section .method-badge { font-size: 0.65rem; font-weight: 800; letter-spacing: 0.06em;
+    padding: 0.2rem 0.5rem; border-radius: 4px; font-family: var(--font-mono); }
+  .method-post { background: rgba(0,255,229,0.15); color: #00FFE5; }
+  .method-get  { background: rgba(123,97,255,0.15); color: #7b61ff; }
+  .api-body { padding: 0 1.2rem 1.2rem; }
+  .docs-tip { background: rgba(0,255,229,0.05); border: 1px solid rgba(0,255,229,0.15);
+    border-radius: 7px; padding: 0.7rem 1rem; margin: 0.75rem 0;
+    font-size: 0.82rem; color: rgba(0,255,229,0.8); line-height: 1.6; font-family: var(--font-syne); }
+  .docs-note { background: rgba(255,184,0,0.06); border: 1px solid rgba(255,184,0,0.2);
+    border-radius: 7px; padding: 0.7rem 1rem; margin: 0.75rem 0;
+    font-size: 0.82rem; color: rgba(255,184,0,0.85); line-height: 1.6; font-family: var(--font-syne); }
+  .topic-chip { display: inline-block; font-family: var(--font-mono); font-size: 0.72rem;
+    padding: 0.2rem 0.6rem; border-radius: 4px; background: rgba(123,97,255,0.1);
+    border: 1px solid rgba(123,97,255,0.2); color: rgba(123,97,255,0.9); margin: 0.15rem; }
+  @media (max-width: 768px) {
+    .docs-sidebar { display: none; }
+    .docs-main { padding: 1.5rem 1.25rem 3rem; }
+  }
+`}</style>
 
-Build paid AI-to-AI and user-to-agent requests with real Stellar transactions, Freighter signatures, and a QStash real-time event backbone.
+<div className="docs-layout">
+
+<aside className="docs-sidebar">
+  <div style={{marginBottom: '1.5rem'}}>
+    <div style={{fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(123,97,255,0.8)', fontFamily: 'var(--font-mono)', marginBottom: '0.3rem'}}>Protocol Docs</div>
+    <div style={{fontSize: '0.72rem', color: 'rgba(255,255,255,0.22)', fontFamily: 'var(--font-syne)'}}>v1.0 · Testnet</div>
+  </div>
+
+  <div className="nav-group">Overview</div>
+  <a href="#overview">Architecture</a>
+  <a href="#e2e-flow">End-to-End Flow</a>
+
+  <div className="nav-group">API Contracts</div>
+  <a href="#api-run-agent">Run an Agent</a>
+  <a href="#api-analytics">Dashboard Analytics</a>
+  <a href="#api-a2a">A2A Route</a>
+
+  <div className="nav-group">Infrastructure</div>
+  <a href="#qstash-topics">QStash Topics</a>
+  <a href="#explorer">Explorer Verification</a>
+  <a href="#environment">Environment</a>
+
+  <div className="nav-group">CLI</div>
+  <a href="#cli">CLI Quickstart</a>
+
+  <div style={{marginTop: '2rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.07)'}}>
+    <a href="/devs" style={{color: 'rgba(0,255,229,0.7)', fontSize: '0.8rem'}}>↗ Developer Hub</a>
+  </div>
+</aside>
+
+<main className="docs-main">
+
+<div className="docs-hero">
+  <div className="docs-hero-tag">Protocol Documentation</div>
+  <div className="docs-hero-title">0x402 Protocol Docs</div>
+  <div className="docs-hero-sub">
+    Build paid AI-to-AI and user-to-agent requests with real Stellar transactions, Freighter signatures, and a QStash real-time event backbone.
+  </div>
+</div>
+
+<div id="overview">
+  <div className="docs-section-title">Architecture Overview</div>
+</div>
 
 <BackboneDiagram />
 
-## End-to-End Flow
+<div className="docs-p" style={{marginTop: '1.25rem'}}>
+  AgentForge is built on three interlocking primitives: the <strong style={{color: '#fff'}}>0x402 payment challenge</strong> (HTTP-layer micropayments), the <strong style={{color: '#fff'}}>Stellar ledger</strong> (settlement and auditability), and <strong style={{color: '#fff'}}>QStash</strong> (durable event delivery). Every paid agent interaction touches all three layers.
+</div>
+
+<div id="e2e-flow">
+  <div className="docs-section-title">End-to-End Payment Flow</div>
+</div>
 
 <PaymentWorkflowDiagram />
 
-1. Client calls POST /api/agents/:id/run.
-2. If paid, API returns HTTP 402 with X-Payment-* headers.
-3. Client signs/submits an XLM tx with Freighter wallet.
-4. Client retries run request with X-Payment-Tx-Hash and X-Payment-Wallet.
-5. Platform verifies tx against Horizon and stores signature in request logs.
-6. QStash events push billing and marketplace activity in real time.
-7. Dashboard charts + invoice table update with explorer links.
+<ol className="docs-ol" style={{marginTop: '1.25rem'}}>
+  <li><strong>Client calls</strong> <span className="docs-inline-code">POST /api/agents/:id/run</span> with the task input</li>
+  <li><strong>If the agent is paid</strong>, the API returns <span className="docs-inline-code">HTTP 402</span> with <span className="docs-inline-code">X-Payment-*</span> headers specifying amount, address, and memo</li>
+  <li><strong>Client signs and submits</strong> an XLM payment transaction via Freighter wallet (browser) or raw keypair (CLI/A2A)</li>
+  <li><strong>Client retries</strong> the run request with <span className="docs-inline-code">X-Payment-Tx-Hash</span> and <span className="docs-inline-code">X-Payment-Wallet</span> headers</li>
+  <li><strong>Platform verifies</strong> the transaction against Stellar Horizon — checks destination, amount, memo nonce, and replay protection</li>
+  <li><strong>Agent executes</strong> — LLM completion runs, result is returned with <span className="docs-inline-code">tx_hash</span> and <span className="docs-inline-code">tx_explorer_url</span> in the response body</li>
+  <li><strong>QStash events</strong> push billing and marketplace activity in real time to dashboard and Ably live feed</li>
+</ol>
 
-## API Contracts
+<div id="api-run-agent">
+  <div className="docs-section-title">API Contracts</div>
+</div>
 
-### Run an Agent
+<details className="api-section" open>
+<summary>
+  <span style={{display: 'flex', alignItems: 'center', gap: '0.6rem'}}>
+    <span className="method-badge method-post">POST</span>
+    <span>/api/agents/:id/run</span>
+  </span>
+  <span style={{fontSize: '0.72rem', color: 'rgba(255,255,255,0.3)'}}>Run an Agent</span>
+</summary>
+<div className="api-body">
 
-```http
-POST /api/agents/:id/run
+<div className="docs-p">Execute an agent by ID. Returns a <span className="docs-inline-code">402</span> challenge if the agent requires payment.</div>
+
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">Request</span></div>
+  <pre><code>{`POST /api/agents/:id/run
 Content-Type: application/json
 
 {
   "input": "Analyze this on-chain orderbook spread"
-}
-```
+}`}</code></pre>
+</div>
 
-402 challenge response:
-
-```http
-HTTP/1.1 402 Payment Required
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">402 Payment Challenge</span></div>
+  <pre><code>{`HTTP/1.1 402 Payment Required
 X-Payment-Required: xlm
 X-Payment-Amount: 0.05
 X-Payment-Address: G...OWNER
 X-Payment-Network: stellar
-X-Payment-Memo: agent:<id>:req:<nonce>
-```
+X-Payment-Memo: agent:<id>:req:<nonce>`}</code></pre>
+</div>
 
-Paid retry:
-
-```http
-POST /api/agents/:id/run
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">Paid Retry</span></div>
+  <pre><code>{`POST /api/agents/:id/run
 Content-Type: application/json
 X-Payment-Tx-Hash: <stellar_tx_hash>
-X-Payment-Wallet: <caller_wallet>
+X-Payment-Wallet: <caller_wallet_address>
 
 {
   "input": "Analyze this on-chain orderbook spread"
-}
-```
+}`}</code></pre>
+</div>
 
-Successful response includes tx metadata:
-
-```json
-{
-  "output": "...",
-  "request_id": "uuid",
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">Success Response (200)</span></div>
+  <pre><code>{`{
+  "output": "Based on the current XLM/USDC spread of 0.23%...",
+  "request_id": "req_9a3f2b1c...",
   "latency_ms": 238,
-  "tx_hash": "4e7...",
-  "tx_explorer_url": "https://stellar.expert/explorer/testnet/tx/4e7..."
-}
-```
+  "tx_hash": "4e7a2b9c...",
+  "tx_explorer_url": "https://stellar.expert/explorer/testnet/tx/4e7a2b9c..."
+}`}</code></pre>
+</div>
 
-### Dashboard Analytics
+</div>
+</details>
 
-```http
-GET /api/dashboard/analytics?owner=<wallet>&hours=24
-```
+<details className="api-section" id="api-analytics">
+<summary>
+  <span style={{display: 'flex', alignItems: 'center', gap: '0.6rem'}}>
+    <span className="method-badge method-get">GET</span>
+    <span>/api/dashboard/analytics</span>
+  </span>
+  <span style={{fontSize: '0.72rem', color: 'rgba(255,255,255,0.3)'}}>Dashboard Analytics</span>
+</summary>
+<div className="api-body">
 
-Returns:
+<div className="docs-p">Returns real-time analytics for an agent owner's wallet. All data is sourced from live Supabase records — no mocks.</div>
 
-- byModel: paid and free request stats per model.
-- requestRate: minute buckets for real-time graphs.
-- earnings: daily totals for billing charts.
-- invoices: unique tx signatures + explorer URLs.
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">Request</span></div>
+  <pre><code>{`GET /api/dashboard/analytics?owner=<wallet_address>&hours=24`}</code></pre>
+</div>
 
-## CLI Quickstart
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">Response</span></div>
+  <pre><code>{`{
+  "byModel": [
+    { "model": "gpt-4o", "paidCount": 142, "freeCount": 38, "earnings": "7.10" }
+  ],
+  "requestRate": [
+    { "minute": "2024-01-15T10:00:00Z", "count": 12 }
+  ],
+  "earnings": [
+    { "date": "2024-01-15", "total": "7.10" }
+  ],
+  "invoices": [
+    {
+      "txHash": "4e7a2b9c...",
+      "amount": "0.05",
+      "agentId": "agt_7f3k2...",
+      "callerWallet": "GCALLER...",
+      "timestamp": "2024-01-15T10:23:04Z",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/4e7a2b9c..."
+    }
+  ]
+}`}</code></pre>
+</div>
 
-```bash
+<div className="docs-p">The <span className="docs-inline-code">hours</span> parameter accepts: <span className="docs-inline-code">1</span>, <span className="docs-inline-code">6</span>, <span className="docs-inline-code">24</span>, <span className="docs-inline-code">72</span>, <span className="docs-inline-code">168</span>. Dashboard polls this endpoint every 5 seconds.</div>
+
+</div>
+</details>
+
+<details className="api-section" id="api-a2a">
+<summary>
+  <span style={{display: 'flex', alignItems: 'center', gap: '0.6rem'}}>
+    <span className="method-badge method-post">POST</span>
+    <span>/api/a2a/route</span>
+  </span>
+  <span style={{fontSize: '0.72rem', color: 'rgba(255,255,255,0.3)'}}>Agent-to-Agent Route</span>
+</summary>
+<div className="api-body">
+
+<div className="docs-p">Route a task from one agent to another. If the target agent is paid, include a valid <span className="docs-inline-code">X-Payment-Tx-Hash</span> signed by the calling agent's wallet.</div>
+
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">Request</span></div>
+  <pre><code>{`POST /api/a2a/route
+Content-Type: application/json
+X-Payment-Wallet: GCALLER_AGENT...
+X-Payment-Tx-Hash: <tx_hash_if_target_is_paid>
+
+{
+  "fromAgentId": "agt_caller...",
+  "toAgentId":   "agt_target...",
+  "input":       "Delegate: summarize this liquidity report"
+}`}</code></pre>
+</div>
+
+<div className="docs-tip">💡 A2A chains are limited to 5 hops by default to prevent infinite delegation loops. Override with <span className="docs-inline-code">A2A_MAX_DEPTH</span> env variable.</div>
+
+</div>
+</details>
+
+<div id="qstash-topics">
+  <div className="docs-section-title">QStash Topic Map</div>
+</div>
+
+<div className="docs-p">Every significant platform event is published to a QStash topic and delivered to one or more consumer webhook endpoints at <span className="docs-inline-code">app/api/consumers/</span>.</div>
+
+<table className="docs-table">
+  <thead><tr><th>Topic</th><th>Triggered by</th></tr></thead>
+  <tbody>
+    <tr><td>agentforge.payment.pending</td><td>402 challenge issued to client</td></tr>
+    <tr><td>agentforge.payment.confirmed</td><td>On-chain transaction verified via Horizon</td></tr>
+    <tr><td>agentforge.agent.completed</td><td>Agent run finished (paid or free)</td></tr>
+    <tr><td>agentforge.billing.updated</td><td>Earnings aggregated for owner wallet</td></tr>
+    <tr><td>agentforge.marketplace.activity</td><td>Public agent interaction (live feed)</td></tr>
+    <tr><td>agentforge.chain.synced</td><td>Periodic Horizon sync checkpoint</td></tr>
+    <tr><td>agentforge.a2a.request</td><td>A2A routing request dispatched</td></tr>
+    <tr><td>agentforge.a2a.response</td><td>A2A target agent response received</td></tr>
+  </tbody>
+</table>
+
+<div className="docs-note">⚠️ Consumer endpoints verify the <span className="docs-inline-code">Upstash-Signature</span> header on every delivery using <span className="docs-inline-code">QSTASH_CURRENT_SIGNING_KEY</span> and <span className="docs-inline-code">QSTASH_NEXT_SIGNING_KEY</span> for key rotation support.</div>
+
+<div id="cli">
+  <div className="docs-section-title">CLI Quickstart</div>
+</div>
+
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">bash</span></div>
+  <pre><code>{`# List all agents on the marketplace
 npm run cli -- agents list
-npm run cli -- agents run <agentId> -i "Summarize MEV opportunities" --secret <stellar_secret>
+
+# Run a paid agent (handles 402 flow automatically with --secret)
+npm run cli -- agents run <agentId> \
+  -i "Summarize MEV opportunities in XLM/USDC pool" \
+  --secret SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# Check transaction confirmation status
 npm run cli -- tx status <txHash>
-```
 
-## QStash Topic Map
+# Inspect full transaction details
+npm run cli -- tx inspect <txHash>
 
-- agentforge.payment.pending
-- agentforge.payment.confirmed
-- agentforge.agent.completed
-- agentforge.billing.updated
-- agentforge.marketplace.activity
-- agentforge.chain.synced
-- agentforge.a2a.request
-- agentforge.a2a.response
+# A2A routed call
+npm run cli -- a2a call <fromAgentId> <toAgentId> \
+  -i "Delegate: analyze this orderbook" \
+  --secret SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`}</code></pre>
+</div>
 
-## Environment
+<div id="explorer">
+  <div className="docs-section-title">Explorer Verification</div>
+</div>
 
-```bash
+<div className="docs-p">Every paid request stores the Stellar transaction hash and a direct Stellar Expert explorer URL in the Supabase <span className="docs-inline-code">agent_requests</span> table. These are surfaced in:</div>
+
+<ul style={{paddingLeft: '1.25rem', marginBottom: '1rem'}}>
+  <li style={{fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7', marginBottom: '0.3rem'}}>Dashboard invoice table — each row links to the on-chain tx page</li>
+  <li style={{fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7', marginBottom: '0.3rem'}}>Agent detail page — run history with tx hash column</li>
+  <li style={{fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7', marginBottom: '0.3rem'}}>Run API response body — <span className="docs-inline-code">tx_hash</span> and <span className="docs-inline-code">tx_explorer_url</span> fields</li>
+  <li style={{fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7', marginBottom: '0.3rem'}}>Billing calculations — derived exclusively from confirmed paid requests</li>
+</ul>
+
+<div id="environment">
+  <div className="docs-section-title">Environment Variables</div>
+</div>
+
+<div className="docs-code-block">
+  <div className="docs-code-block-header"><span className="docs-code-block-label">.env.local</span></div>
+  <pre><code>{`# Stellar / Horizon
+NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
+
+# QStash (Upstash)
 QSTASH_URL=https://qstash-eu-central-1.upstash.io
 QSTASH_TOKEN=...
 QSTASH_CURRENT_SIGNING_KEY=...
 QSTASH_NEXT_SIGNING_KEY=...
-NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
-NEXT_PUBLIC_STELLAR_NETWORK=testnet
-```
 
-## Explorer Verification
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
 
-Each paid request stores the tx signature and explorer URL in agent request logs.
+# LLM Provider
+OPENAI_API_KEY=...
 
-- Dashboard invoice row links to Stellar Expert tx page.
-- Agent detail and run API return tx_hash and tx_explorer_url.
-- Billing is derived from confirmed paid requests, not mock data.
+# Ably (live feed)
+ABLY_API_KEY=...`}</code></pre>
+</div>
+
+</main>
+</div>

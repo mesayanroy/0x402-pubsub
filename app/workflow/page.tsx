@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -203,6 +203,544 @@ function ToolBtn({
     >
       {children}
     </button>
+  );
+}
+
+// ─── Payment Executor Types ────────────────────────────────────────────────────
+
+interface AgentInfo {
+  id: string;
+  name: string;
+  description?: string;
+  priceXlm: number;
+  ownerAddress: string;
+}
+
+interface InvoiceData {
+  invoiceNumber: string;
+  agentId: string;
+  agentName: string;
+  task: string;
+  priceXlm: number;
+  txHash: string;
+  fromWallet: string;
+  timestamp: string;
+  explorerUrl: string;
+}
+
+type ExecutorStep =
+  | 'idle'
+  | 'checking_wallet'
+  | 'building_tx'
+  | 'signing'
+  | 'submitting'
+  | 'confirming'
+  | 'running_agent'
+  | 'done'
+  | 'error';
+
+const EXECUTOR_STEP_LABELS: Record<ExecutorStep, string> = {
+  idle: 'Execute Task',
+  checking_wallet: 'Checking wallet…',
+  building_tx: 'Building transaction…',
+  signing: 'Waiting for Freighter…',
+  submitting: 'Submitting to Stellar…',
+  confirming: 'Confirming on ledger…',
+  running_agent: 'Running agent…',
+  done: 'Done',
+  error: 'Retry',
+};
+
+const STELLAR_MEMO_MAX_LENGTH = 28;
+const STELLAR_POLL_INTERVAL_MS = 2_000;
+
+function generateInvoiceNumber(): string {
+  return `INV-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function extractStellarError(err: unknown): string {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'object' && err !== null) {
+    const e = err as Record<string, unknown>;
+    try {
+      const resultCodes = (
+        (e.response as Record<string, unknown>)?.data as Record<string, unknown>
+      )?.extras as Record<string, unknown>;
+      if (resultCodes?.result_codes) {
+        const rc = resultCodes.result_codes as Record<string, unknown>;
+        return `Transaction failed: ${rc.transaction || ''} ops: ${JSON.stringify(rc.operations || [])}`;
+      }
+    } catch { /* fall through */ }
+  }
+  const msg = String(err);
+  if (msg.includes('Resource Missing') || msg.includes('404'))
+    return 'Account not found on Stellar network. Make sure Freighter is funded on the correct network.';
+  if (msg.includes('403') || msg.includes('Forbidden'))
+    return 'Access denied. Please unlock Freighter and try again.';
+  return msg.startsWith('Error:') ? msg.slice(7).trim() : msg;
+}
+
+async function waitForLedger(
+  horizonServer: import('stellar-sdk').Horizon.Server,
+  txHash: string,
+  timeoutMs = 30_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await horizonServer.transactions().transaction(txHash).call();
+      return;
+    } catch { /* not yet */ }
+    await new Promise((r) => setTimeout(r, STELLAR_POLL_INTERVAL_MS));
+  }
+}
+
+// ─── Payment Executor Section ──────────────────────────────────────────────────
+
+function PaymentExecutorSection({ walletAddress }: { walletAddress: string }) {
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
+
+  const [selectedAgent, setSelectedAgent] = useState<AgentInfo | null>(null);
+  const [taskPrompt, setTaskPrompt] = useState('');
+
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [step, setStep] = useState<ExecutorStep>('idle');
+  const [stepError, setStepError] = useState<string | null>(null);
+  const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+    setLoadingAgents(true);
+    setAgentsError(null);
+    fetch(`/api/agents/list?owner=${walletAddress}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const list: AgentInfo[] = (Array.isArray(data) ? data : data?.agents ?? []).map(
+          (a: Record<string, unknown>) => ({
+            id: String(a.id ?? a.agent_id ?? ''),
+            name: String(a.name ?? a.agent_name ?? 'Unnamed Agent'),
+            description: a.description ? String(a.description) : undefined,
+            priceXlm: Number(a.price_xlm ?? a.priceXlm ?? 0.1),
+            ownerAddress: String(a.owner_address ?? a.ownerAddress ?? walletAddress),
+          })
+        );
+        setAgents(list);
+      })
+      .catch((e) => setAgentsError(String(e)))
+      .finally(() => setLoadingAgents(false));
+  }, [walletAddress]);
+
+  const handleExecute = async () => {
+    if (!selectedAgent || !taskPrompt.trim()) return;
+    setShowConfirmModal(false);
+    setStep('checking_wallet');
+    setStepError(null);
+    setInvoice(null);
+
+    try {
+      const StellarSdk = await import('stellar-sdk');
+      const freighter = await import('@stellar/freighter-api');
+
+      const connResult = await freighter.isConnected();
+      if (!connResult.isConnected)
+        throw new Error('Freighter wallet is not installed. Visit https://www.freighter.app');
+
+      const accessResult = await freighter.requestAccess();
+      if (accessResult && 'error' in accessResult && accessResult.error)
+        throw new Error('Freighter access denied. Please allow this site in Freighter.');
+
+      const { address: senderKey, error: addrErr } = await freighter.getAddress();
+      if (addrErr || !senderKey)
+        throw new Error('Could not get wallet address. Ensure Freighter is unlocked.');
+
+      setStep('building_tx');
+
+      const isMainnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet';
+      const horizonUrl =
+        process.env.NEXT_PUBLIC_HORIZON_URL ??
+        (isMainnet ? 'https://horizon.stellar.org' : 'https://horizon-testnet.stellar.org');
+      const networkPassphrase = isMainnet ? StellarSdk.Networks.PUBLIC : StellarSdk.Networks.TESTNET;
+      const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
+
+      const senderAccount = await horizonServer.loadAccount(senderKey);
+      const memo = `agent:${selectedAgent.id}`.slice(0, STELLAR_MEMO_MAX_LENGTH);
+
+      const tx = new StellarSdk.TransactionBuilder(senderAccount, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase,
+      })
+        .addOperation(
+          StellarSdk.Operation.payment({
+            destination: selectedAgent.ownerAddress,
+            asset: StellarSdk.Asset.native(),
+            amount: selectedAgent.priceXlm.toFixed(7),
+          })
+        )
+        .addMemo(StellarSdk.Memo.text(memo))
+        .setTimeout(60)
+        .build();
+
+      setStep('signing');
+
+      const signedResult = await freighter.signTransaction(tx.toXDR(), { networkPassphrase });
+      if (signedResult.error) throw new Error(String(signedResult.error));
+
+      const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedResult.signedTxXdr, networkPassphrase);
+
+      setStep('submitting');
+      const submitResult = await horizonServer.submitTransaction(signedTx);
+      const txHash = submitResult.hash;
+
+      setStep('confirming');
+      await waitForLedger(horizonServer, txHash);
+
+      setStep('running_agent');
+
+      const explorerNet = isMainnet ? 'public' : 'testnet';
+      const explorerUrl = `https://stellar.expert/explorer/${explorerNet}/tx/${txHash}`;
+
+      const runRes = await fetch(`/api/agents/${selectedAgent.id}/run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-payment-tx-hash': txHash,
+          'x-payment-from': senderKey,
+        },
+        body: JSON.stringify({ prompt: taskPrompt, task: taskPrompt }),
+      });
+
+      const runData = await runRes.json().catch(() => ({}));
+      if (!runRes.ok) {
+        // Payment succeeded; agent run had an issue — still show invoice
+        console.warn('Agent run error:', runData);
+      }
+
+      setInvoice({
+        invoiceNumber: generateInvoiceNumber(),
+        agentId: selectedAgent.id,
+        agentName: selectedAgent.name,
+        task: taskPrompt,
+        priceXlm: selectedAgent.priceXlm,
+        txHash,
+        fromWallet: senderKey,
+        timestamp: new Date().toISOString(),
+        explorerUrl,
+      });
+
+      setStep('done');
+    } catch (err) {
+      setStepError(extractStellarError(err));
+      setStep('error');
+    }
+  };
+
+  const busy = step !== 'idle' && step !== 'done' && step !== 'error';
+  const isMainnet = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="space-y-6"
+    >
+      {/* Heading */}
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-[rgba(0,255,229,0.1)] border border-[rgba(0,255,229,0.2)] flex items-center justify-center shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00FFE5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <div>
+          <h2 className="font-syne text-xl font-bold text-white">0x402 Payment Executor</h2>
+          <p className="font-mono text-xs text-gray-500">Select an agent, enter a task, pay &amp; execute via Stellar.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* ── Agent Selection ── */}
+        <div className="space-y-3">
+          <p className="font-mono text-[10px] text-gray-500 uppercase tracking-widest">Your Agents</p>
+
+          {loadingAgents && (
+            <div className="flex items-center gap-2 text-[#00FFE5] font-mono text-xs py-4">
+              <span className="w-2 h-2 rounded-full bg-[#00FFE5] animate-pulse" />
+              Loading agents…
+            </div>
+          )}
+
+          {agentsError && (
+            <div className="p-3 rounded-lg border border-red-900 bg-[rgba(248,113,113,0.06)] text-red-400 font-mono text-xs">
+              {agentsError}
+            </div>
+          )}
+
+          {!loadingAgents && !agentsError && agents.length === 0 && (
+            <div className="p-4 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] text-center">
+              <p className="font-mono text-xs text-gray-600">No agents found for this wallet.</p>
+              <p className="font-mono text-[10px] text-gray-700 mt-1">Deploy an agent from the dashboard first.</p>
+            </div>
+          )}
+
+          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            {agents.map((agent, i) => (
+              <motion.button
+                key={agent.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                onClick={() => { setSelectedAgent(agent); setStep('idle'); setStepError(null); setInvoice(null); }}
+                className={`w-full text-left p-3 rounded-xl border transition-all ${
+                  selectedAgent?.id === agent.id
+                    ? 'border-[rgba(0,255,229,0.4)] bg-[rgba(0,255,229,0.06)]'
+                    : 'border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:border-[rgba(0,255,229,0.2)] hover:bg-[rgba(0,255,229,0.03)]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-syne text-sm font-semibold ${selectedAgent?.id === agent.id ? 'text-[#00FFE5]' : 'text-white'}`}>
+                    {agent.name}
+                  </span>
+                  <span className="font-mono text-xs text-[#FFB800] shrink-0">{agent.priceXlm} XLM</span>
+                </div>
+                {agent.description && (
+                  <p className="font-mono text-[10px] text-gray-500 mt-1 truncate">{agent.description}</p>
+                )}
+                <p className="font-mono text-[9px] text-gray-700 mt-1 truncate">{agent.id}</p>
+              </motion.button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Task Input + Execute ── */}
+        <div className="space-y-4">
+          <p className="font-mono text-[10px] text-gray-500 uppercase tracking-widest">Task / Prompt</p>
+
+          <textarea
+            value={taskPrompt}
+            onChange={(e) => setTaskPrompt(e.target.value)}
+            placeholder={selectedAgent ? `Describe the task for ${selectedAgent.name}…` : 'Select an agent first…'}
+            disabled={!selectedAgent || busy}
+            rows={5}
+            className="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2.5 text-sm font-mono text-white placeholder-gray-600 focus:outline-none focus:border-[rgba(0,255,229,0.3)] resize-none disabled:opacity-40 transition-colors"
+          />
+
+          {selectedAgent && (
+            <div className="p-3 rounded-xl border border-[rgba(255,184,0,0.2)] bg-[rgba(255,184,0,0.04)] space-y-1">
+              <div className="flex justify-between font-mono text-xs">
+                <span className="text-gray-500">Agent</span>
+                <span className="text-white">{selectedAgent.name}</span>
+              </div>
+              <div className="flex justify-between font-mono text-xs">
+                <span className="text-gray-500">Price</span>
+                <span className="text-[#FFB800] font-bold">{selectedAgent.priceXlm} XLM</span>
+              </div>
+              <div className="flex justify-between font-mono text-xs">
+                <span className="text-gray-500">Network</span>
+                <span className={isMainnet ? 'text-[#4ade80]' : 'text-[#00FFE5]'}>
+                  Stellar {isMainnet ? 'Mainnet' : 'Testnet'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Step progress */}
+          <AnimatePresence>
+            {busy && (
+              <motion.div
+                key="progress"
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                className="p-3 rounded-lg border border-[rgba(0,255,229,0.2)] bg-[rgba(0,255,229,0.06)] text-[#00FFE5] text-xs font-mono flex items-center gap-2"
+              >
+                <span className="w-2 h-2 rounded-full bg-[#00FFE5] animate-pulse shrink-0" />
+                {EXECUTOR_STEP_LABELS[step]}
+              </motion.div>
+            )}
+            {stepError && (
+              <motion.div
+                key="error"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="p-3 rounded-lg border border-red-900 bg-[rgba(248,113,113,0.06)] text-red-400 text-xs font-mono"
+              >
+                {stepError}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => { if (selectedAgent && taskPrompt.trim()) setShowConfirmModal(true); }}
+              disabled={!selectedAgent || !taskPrompt.trim() || busy}
+              className="w-full py-3 rounded-xl bg-[#00FFE5] text-black font-bold font-mono text-sm hover:bg-[#00e6ce] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {EXECUTOR_STEP_LABELS[step]}
+            </button>
+            <p className="font-mono text-[10px] text-[#FFB800] text-center">
+              ⚠ Transaction requires wallet signature. Your XLM balance will be deducted.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Signature Confirm Modal ── */}
+      <AnimatePresence>
+        {showConfirmModal && selectedAgent && (
+          <motion.div
+            key="confirm-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowConfirmModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md mx-4 rounded-2xl border border-[rgba(0,255,229,0.2)] bg-[#0a0a10] p-6"
+            >
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-[rgba(255,184,0,0.1)] border border-[rgba(255,184,0,0.3)] flex items-center justify-center shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFB800" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="font-syne text-lg font-bold text-white">Signature Required</h3>
+                  <p className="font-mono text-xs text-gray-400">Review and confirm the transaction</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 mb-6 font-mono text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Agent</span>
+                  <span className="text-white">{selectedAgent.name}</span>
+                </div>
+                <div className="flex justify-between items-start gap-2">
+                  <span className="text-gray-500 shrink-0">Task</span>
+                  <span className="text-gray-300 text-xs text-right max-w-[240px] line-clamp-2">{taskPrompt}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Price</span>
+                  <span className="text-[#FFB800] font-bold">{selectedAgent.priceXlm} XLM</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Network</span>
+                  <span className={isMainnet ? 'text-[#4ade80]' : 'text-[#00FFE5]'}>
+                    Stellar {isMainnet ? 'Mainnet' : 'Testnet'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg border border-[rgba(255,184,0,0.2)] bg-[rgba(255,184,0,0.05)] mb-5">
+                <p className="font-mono text-[10px] text-[#FFB800]">
+                  ⚠ This will open Freighter and deduct {selectedAgent.priceXlm} XLM from your wallet.
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  className="flex-1 py-2.5 text-sm font-mono border border-[rgba(255,255,255,0.1)] text-gray-400 rounded-lg hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExecute}
+                  className="flex-1 py-2.5 text-sm font-mono bg-[#00FFE5] text-black rounded-lg font-bold hover:bg-[#00e6ce] transition-colors"
+                >
+                  Confirm &amp; Sign in Freighter
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Invoice Panel ── */}
+      <AnimatePresence>
+        {invoice && (
+          <motion.div
+            key="invoice"
+            initial={{ opacity: 0, y: 20, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 22 }}
+            className="rounded-2xl border border-[rgba(0,255,229,0.25)] bg-[rgba(0,10,10,0.8)] overflow-hidden"
+          >
+            {/* Invoice header */}
+            <div className="px-6 py-4 border-b border-[rgba(0,255,229,0.1)] flex items-center justify-between">
+              <div>
+                <p className="font-mono text-[10px] text-[#00FFE5] uppercase tracking-widest mb-0.5">Payment Invoice</p>
+                <p className="font-syne text-lg font-bold text-white">{invoice.invoiceNumber}</p>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-[rgba(74,222,128,0.12)] border border-[rgba(74,222,128,0.3)]">
+                <span className="font-mono text-xs text-[#4ade80] font-bold tracking-wider">✓ CONFIRMED</span>
+              </div>
+            </div>
+
+            {/* Invoice body */}
+            <div className="px-6 py-5 space-y-3 font-mono text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Agent Name</span>
+                <span className="text-white">{invoice.agentName}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-gray-500 shrink-0">Agent ID</span>
+                <span className="text-gray-300 text-xs text-right truncate max-w-[240px]">{invoice.agentId}</span>
+              </div>
+              <div className="flex justify-between items-start gap-3">
+                <span className="text-gray-500 shrink-0">Task</span>
+                <span className="text-gray-300 text-xs text-right max-w-[260px] line-clamp-2">{invoice.task}</span>
+              </div>
+              <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">
+                <span className="text-gray-500">Amount Paid</span>
+                <span className="text-[#FFB800] font-bold text-base">{invoice.priceXlm} XLM</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-gray-500 shrink-0">TX Hash</span>
+                <a
+                  href={invoice.explorerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#00FFE5] text-xs text-right truncate max-w-[220px] hover:underline"
+                >
+                  {invoice.txHash}
+                </a>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-gray-500 shrink-0">From Wallet</span>
+                <span className="text-gray-300 text-xs text-right truncate max-w-[220px]">{invoice.fromWallet}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Timestamp</span>
+                <span className="text-gray-300 text-xs">{new Date(invoice.timestamp).toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Invoice footer */}
+            <div className="px-6 py-4 border-t border-[rgba(0,255,229,0.1)] flex items-center justify-between gap-3">
+              <p className="font-mono text-[10px] text-gray-600">Protocol: 0x402 · Stellar {isMainnet ? 'Mainnet' : 'Testnet'}</p>
+              <a
+                href={invoice.explorerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[rgba(0,255,229,0.2)] text-[#00FFE5] font-mono text-xs hover:bg-[rgba(0,255,229,0.08)] transition-colors"
+              >
+                View on Stellar Explorer
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </a>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
@@ -538,6 +1076,16 @@ export default function WorkflowPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Payment Executor ── */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.15 }}
+        className="rounded-2xl border border-[rgba(0,255,229,0.1)] bg-[rgba(255,255,255,0.01)] p-6"
+      >
+        <PaymentExecutorSection walletAddress={walletAddress} />
+      </motion.div>
     </div>
   );
 }

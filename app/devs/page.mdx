@@ -1,98 +1,718 @@
-<div className="min-h-screen">
-  <div className="max-w-5xl mx-auto px-4 py-10">
+<style>{`
+  .devs-layout { display: flex; min-height: 100vh; gap: 0; }
+  .devs-sidebar {
+    width: 260px; min-width: 260px; position: sticky; top: 64px;
+    height: calc(100vh - 64px); overflow-y: auto; padding: 2rem 1.25rem;
+    border-right: 1px solid rgba(255,255,255,0.07);
+    background: rgba(10,10,15,0.95);
+    backdrop-filter: blur(12px);
+  }
+  .devs-sidebar a {
+    display: block; padding: 0.45rem 0.85rem; border-radius: 6px;
+    font-size: 0.82rem; color: rgba(255,255,255,0.55);
+    text-decoration: none; transition: all 0.15s ease;
+    font-family: var(--font-syne);
+  }
+  .devs-sidebar a:hover { color: #00FFE5; background: rgba(0,255,229,0.07); }
+  .devs-sidebar .nav-section-title {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.28); text-transform: uppercase;
+    padding: 0.5rem 0.85rem 0.25rem; margin-top: 1.25rem; font-family: var(--font-syne);
+  }
+  .devs-main { flex: 1; min-width: 0; padding: 2.5rem 3rem 4rem; max-width: 860px; }
+  .devs-breadcrumb {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem; color: rgba(255,255,255,0.35); margin-bottom: 2rem;
+    font-family: var(--font-mono);
+  }
+  .devs-breadcrumb span { color: rgba(255,255,255,0.18); }
+  .devs-breadcrumb a { color: rgba(0,255,229,0.6); text-decoration: none; }
+  .devs-breadcrumb a:hover { color: #00FFE5; }
+  .devs-page-title {
+    font-size: 2.1rem; font-weight: 800; letter-spacing: -0.03em;
+    color: #fff; font-family: var(--font-syne); margin-bottom: 0.6rem; line-height: 1.2;
+  }
+  .devs-page-subtitle {
+    font-size: 0.95rem; color: rgba(255,255,255,0.5); margin-bottom: 2.5rem;
+    max-width: 560px; line-height: 1.65;
+  }
+  .devs-section-anchor { padding-top: 2rem; margin-bottom: 0.25rem; }
+  .devs-section-label {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #00FFE5; font-family: var(--font-mono); margin-bottom: 1rem;
+  }
+  details.faq {
+    border: 1px solid rgba(255,255,255,0.07); border-radius: 10px;
+    margin-bottom: 0.6rem; background: rgba(255,255,255,0.025);
+    overflow: hidden; transition: border-color 0.2s ease;
+  }
+  details.faq:hover { border-color: rgba(0,255,229,0.18); }
+  details.faq[open] { border-color: rgba(0,255,229,0.28); background: rgba(0,255,229,0.03); }
+  details.faq summary {
+    padding: 1rem 1.25rem; cursor: pointer; list-style: none;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.92rem; font-weight: 600; color: rgba(255,255,255,0.85);
+    font-family: var(--font-syne); gap: 1rem; user-select: none;
+  }
+  details.faq summary::-webkit-details-marker { display: none; }
+  details.faq[open] summary { color: #fff; }
+  details.faq summary .faq-chevron {
+    flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center;
+    justify-content: center; font-size: 0.6rem; color: rgba(255,255,255,0.4);
+    transition: all 0.2s ease;
+  }
+  details.faq[open] summary .faq-chevron {
+    background: rgba(0,255,229,0.12); border-color: rgba(0,255,229,0.35);
+    color: #00FFE5; transform: rotate(45deg);
+  }
+  .faq-body { padding: 0 1.25rem 1.25rem; }
+  .faq-body p { font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.75; margin-bottom: 0.85rem; }
+  .faq-body ul, .faq-body ol { padding-left: 1.25rem; margin-bottom: 0.85rem; }
+  .faq-body li { font-size: 0.875rem; color: rgba(255,255,255,0.6); line-height: 1.7; margin-bottom: 0.3rem; }
+  .faq-body strong { color: rgba(255,255,255,0.9); }
+  .faq-body code {
+    font-family: var(--font-mono); font-size: 0.78rem;
+    background: rgba(0,255,229,0.08); color: #00FFE5;
+    padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid rgba(0,255,229,0.15);
+  }
+  .faq-body pre {
+    background: rgba(5,5,8,0.9); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px; padding: 1rem 1.1rem; overflow-x: auto; margin: 0.85rem 0;
+  }
+  .faq-body pre code {
+    background: none; border: none; padding: 0;
+    font-size: 0.78rem; color: rgba(255,255,255,0.75); line-height: 1.65;
+  }
+  .faq-note {
+    background: rgba(255,184,0,0.07); border: 1px solid rgba(255,184,0,0.2);
+    border-radius: 7px; padding: 0.7rem 1rem; margin: 0.75rem 0;
+    font-size: 0.82rem; color: rgba(255,184,0,0.85); line-height: 1.6;
+    font-family: var(--font-syne);
+  }
+  .faq-tip {
+    background: rgba(0,255,229,0.05); border: 1px solid rgba(0,255,229,0.15);
+    border-radius: 7px; padding: 0.7rem 1rem; margin: 0.75rem 0;
+    font-size: 0.82rem; color: rgba(0,255,229,0.8); line-height: 1.6;
+    font-family: var(--font-syne);
+  }
+  .env-table { width: 100%; border-collapse: collapse; margin: 0.85rem 0; }
+  .env-table th {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgba(255,255,255,0.35); font-family: var(--font-syne);
+    text-align: left; padding: 0.5rem 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .env-table td {
+    font-size: 0.8rem; padding: 0.55rem 0.85rem; color: rgba(255,255,255,0.6);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .env-table td:first-child { font-family: var(--font-mono); color: #00FFE5; font-size: 0.76rem; }
+  .env-table tr:last-child td { border-bottom: none; }
+  @media (max-width: 768px) {
+    .devs-sidebar { display: none; }
+    .devs-main { padding: 1.5rem 1.25rem 3rem; }
+  }
+`}</style>
 
-# Developer Hub
+<div className="devs-layout">
 
-Production-first integration reference for building on 0x402 + Stellar + QStash.
+<aside className="devs-sidebar">
+  <div style={{marginBottom: '1.5rem'}}>
+    <div style={{fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(0,255,229,0.7)', fontFamily: 'var(--font-mono)', marginBottom: '0.35rem'}}>Developer Hub</div>
+    <div style={{fontSize: '0.75rem', color: 'rgba(255,255,255,0.25)', fontFamily: 'var(--font-syne)'}}>v1.0 · Testnet</div>
+  </div>
 
-## JavaScript Client Pattern
+  <div className="nav-section-title">Getting Started</div>
+  <a href="#what-is-0x402">What is 0x402?</a>
+  <a href="#freighter-wallet">Freighter Wallet</a>
+  <a href="#payment-flow">Payment Flow</a>
 
-```ts
-async function runPaidAgent(agentId: string, input: string, wallet: {
+  <div className="nav-section-title">API Reference</div>
+  <a href="#create-agent">Create & Deploy Agent</a>
+  <a href="#min-price">Pricing & Fees</a>
+  <a href="#stellar-verify">Stellar Verification</a>
+  <a href="#integrate-api">API Integration</a>
+
+  <div className="nav-section-title">CLI & Tools</div>
+  <a href="#cli-usage">CLI Usage</a>
+  <a href="#qstash-topics">QStash Topics</a>
+  <a href="#monitor-agent">Monitoring</a>
+
+  <div className="nav-section-title">Advanced</div>
+  <a href="#ai-models">AI Models</a>
+  <a href="#a2a-routing">A2A Routing</a>
+
+  <div style={{marginTop: '2rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.07)'}}>
+    <a href="/docs" style={{color: 'rgba(255,184,0,0.7)', fontSize: '0.8rem'}}>↗ Protocol Docs</a>
+  </div>
+</aside>
+
+<main className="devs-main">
+
+<div className="devs-breadcrumb">
+  <a href="/">Home</a>
+  <span>/</span>
+  <span>Developer Hub</span>
+</div>
+
+<div className="devs-page-title">Developer Hub</div>
+<div className="devs-page-subtitle">
+  Production-first integration reference for building on the 0x402 protocol — real Stellar payments, QStash event routing, and AI agent orchestration.
+</div>
+
+<div className="devs-section-anchor" id="what-is-0x402">
+  <div className="devs-section-label">Getting Started</div>
+</div>
+
+<details className="faq" id="what-is-0x402-detail">
+<summary>🌐 What is 0x402 Protocol?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>The <strong>0x402 Protocol</strong> is an open standard for machine-to-machine micropayments built on top of the HTTP specification. It extends the dormant <code>402 Payment Required</code> status code into a fully functional request-payment-retry handshake, enabling any API endpoint to monetize its responses in real time.</p>
+
+<p>In the AgentForge implementation, 0x402 is powered by the <strong>Stellar blockchain</strong>. When a client calls a paid agent endpoint and the server detects no valid payment credential, it responds with:</p>
+
+<pre><code>{`HTTP/1.1 402 Payment Required
+X-Payment-Required: xlm
+X-Payment-Amount: 0.05
+X-Payment-Address: GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+X-Payment-Network: stellar
+X-Payment-Memo: agent:<id>:req:<nonce>`}</code></pre>
+
+<p>The client then creates and submits a real XLM transaction to the Stellar network, captures the transaction hash, and retries the original request with the payment proof in headers. The server verifies the transaction on-chain via Horizon before fulfilling the request.</p>
+
+<p>This creates a <strong>trustless, permissionless</strong> payment layer where:</p>
+<ul>
+  <li>No API keys or billing accounts are needed</li>
+  <li>Payments settle in 3–5 seconds on Stellar</li>
+  <li>The payment proof is permanently auditable on-chain</li>
+  <li>Any wallet can pay any agent without prior registration</li>
+</ul>
+
+<div className="faq-tip">💡 <strong>Tip:</strong> The minimum denomination is <strong>0.0000001 XLM</strong> (1 stroop), making sub-cent micropayments economically viable for high-frequency agent calls.</div>
+
+</div>
+</details>
+
+<details className="faq" id="freighter-wallet-detail">
+<summary>🔐 How do I connect my Freighter wallet?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p><strong>Freighter</strong> is a browser extension wallet for the Stellar network, analogous to MetaMask for Ethereum. It is the primary wallet integration in AgentForge for user-facing payment flows.</p>
+
+<p><strong>Installation:</strong></p>
+<ol>
+  <li>Install the <strong>Freighter extension</strong> from <code>freighter.app</code> or the Chrome/Firefox Web Store</li>
+  <li>Create or import a Stellar account (12 or 24-word mnemonic)</li>
+  <li>Switch to <strong>Testnet</strong> in Freighter settings during development</li>
+  <li>Fund your testnet account using <code>https://friendbot.stellar.org/?addr=YOUR_ADDRESS</code></li>
+</ol>
+
+<p><strong>Integration in your app:</strong></p>
+
+<pre><code>{`import { isConnected, getPublicKey, signTransaction } from '@stellar/freighter-api';
+
+// Check if Freighter is installed
+const connected = await isConnected();
+if (!connected) throw new Error('Freighter not installed');
+
+// Request the user's public key
+const publicKey = await getPublicKey();
+
+// Sign and submit a payment transaction
+const signedXDR = await signTransaction(unsignedXDR, {
+  network: 'TESTNET',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+});`}</code></pre>
+
+<p><strong>How AgentForge uses Freighter:</strong> When an agent endpoint returns a 402, the <code>WalletConnect</code> component triggers the <code>payXLM</code> helper which builds a Stellar payment transaction, presents it to Freighter for signing, and submits the signed XDR to Horizon. The resulting transaction hash is forwarded in the retry request header.</p>
+
+<div className="faq-note">⚠️ <strong>Note:</strong> Freighter requires the user to approve each transaction. For non-interactive server-side flows (CLI or A2A), use a raw Stellar secret key passed via <code>--secret</code> flag.</div>
+
+</div>
+</details>
+
+<details className="faq" id="payment-flow-detail">
+<summary>💳 How does the 402 Payment flow work?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>The full end-to-end payment flow for a paid agent call involves three phases: <strong>probe → pay → prove</strong>.</p>
+
+<p><strong>Phase 1 — Probe (initial request):</strong></p>
+<pre><code>{`POST /api/agents/:id/run
+Content-Type: application/json
+
+{ "input": "Analyze this on-chain orderbook spread" }`}</code></pre>
+
+<p>If the agent requires payment, the server returns a <code>402</code> with payment headers. No computation is performed yet.</p>
+
+<p><strong>Phase 2 — Pay (wallet transaction):</strong></p>
+<pre><code>{`// Using Freighter or a raw keypair:
+const txHash = await wallet.payXLM(
+  paymentAddress,  // from X-Payment-Address header
+  paymentAmount,   // from X-Payment-Amount header  
+  paymentMemo      // from X-Payment-Memo header (CRITICAL — links tx to request)
+);`}</code></pre>
+
+<p>The memo field is the most important part — it binds the on-chain transaction to a specific agent request nonce, preventing replay attacks.</p>
+
+<p><strong>Phase 3 — Prove (retry with proof):</strong></p>
+<pre><code>{`POST /api/agents/:id/run
+Content-Type: application/json
+X-Payment-Tx-Hash: 4e7a2b9c...
+X-Payment-Wallet: GCALLER...
+
+{ "input": "Analyze this on-chain orderbook spread" }`}</code></pre>
+
+<p>The server fetches the transaction from Horizon, verifies:</p>
+<ul>
+  <li>The transaction hash is valid and confirmed on the correct network</li>
+  <li>The destination address matches the agent owner's wallet</li>
+  <li>The amount is ≥ the required price</li>
+  <li>The memo matches the expected pattern <code>agent:&lt;id&gt;:req:&lt;nonce&gt;</code></li>
+  <li>The transaction has not been used before (replay protection via Supabase)</li>
+</ul>
+
+<p>On success, the agent runs, results are returned, and a QStash <code>agentforge.payment.confirmed</code> event is published for billing and marketplace tracking.</p>
+
+<div className="faq-tip">💡 The entire flow is implemented in <code>lib/paymentVerifier.ts</code> and the agent route handler at <code>app/api/agents/[id]/run/route.ts</code>.</div>
+
+</div>
+</details>
+
+<div className="devs-section-anchor" id="create-agent">
+  <div className="devs-section-label">API Reference</div>
+</div>
+
+<details className="faq" id="create-agent-detail">
+<summary>🤖 How do I create and deploy an agent?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>Agents are created via the AgentBuilder UI or directly via the <code>POST /api/agents</code> endpoint. Each agent is owned by a Stellar wallet address and stored in Supabase.</p>
+
+<p><strong>Create via API:</strong></p>
+<pre><code>{`POST /api/agents
+Content-Type: application/json
+X-Wallet-Address: GOWNER...
+
+{
+  "name": "MEV Scanner",
+  "description": "Scans Stellar DEX for arbitrage opportunities",
+  "model": "gpt-4o",
+  "systemPrompt": "You are a DeFi analyst specializing in Stellar AMM pools...",
+  "price": "0.05",
+  "isPublic": true,
+  "tags": ["defi", "stellar", "arbitrage"]
+}`}</code></pre>
+
+<p><strong>Response:</strong></p>
+<pre><code>{`{
+  "id": "agt_7f3k2...",
+  "name": "MEV Scanner",
+  "owner": "GOWNER...",
+  "price": "0.05",
+  "model": "gpt-4o",
+  "isPublic": true,
+  "createdAt": "2024-01-15T10:23:00Z",
+  "runUrl": "/api/agents/agt_7f3k2.../run"
+}`}</code></pre>
+
+<p><strong>Deploy checklist:</strong></p>
+<ol>
+  <li>Ensure <code>SUPABASE_SERVICE_ROLE_KEY</code> and <code>OPENAI_API_KEY</code> (or your model provider key) are set</li>
+  <li>Create your agent via UI or API</li>
+  <li>Test the run endpoint — first call should return <code>402</code></li>
+  <li>Verify payment flow with a testnet wallet</li>
+  <li>Check dashboard analytics to confirm billing data populates</li>
+  <li>Set <code>isPublic: true</code> to list on the marketplace</li>
+</ol>
+
+<div className="faq-note">⚠️ <strong>Free agents:</strong> Set <code>price: "0"</code> to create a free agent. The 402 flow is skipped entirely — requests are served immediately without payment verification.</div>
+
+</div>
+</details>
+
+<details className="faq" id="min-price-detail">
+<summary>💰 What is the minimum price per request?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>The minimum price for a paid agent request is <strong>0.0000001 XLM</strong> (1 stroop), the smallest denomination on Stellar. In practice, meaningful pricing starts at around <strong>0.01 XLM</strong> (~$0.001) per call.</p>
+
+<p><strong>Recommended pricing tiers:</strong></p>
+
+<table className="env-table">
+  <thead>
+    <tr><th>Use Case</th><th>Price (XLM)</th><th>Est. USD</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Simple lookup / classification</td><td>0.01 – 0.05</td><td>$0.001 – $0.005</td></tr>
+    <tr><td>Standard LLM completion</td><td>0.05 – 0.20</td><td>$0.005 – $0.02</td></tr>
+    <tr><td>Complex analysis / long context</td><td>0.20 – 1.00</td><td>$0.02 – $0.10</td></tr>
+    <tr><td>Premium / specialized model</td><td>1.00 – 5.00</td><td>$0.10 – $0.50</td></tr>
+  </tbody>
+</table>
+
+<p>Stellar transaction fees are <strong>fixed at 100 stroops (0.00001 XLM)</strong> per transaction — negligible compared to any reasonable pricing. There are no protocol-level platform fees on AgentForge; the full amount goes directly to the agent owner's wallet.</p>
+
+<div className="faq-tip">💡 For agents that handle batched or long-running tasks, consider implementing your own rate limiting and bundling multiple agent calls into a single higher-value payment to amortize the per-transaction verification overhead.</div>
+
+</div>
+</details>
+
+<details className="faq" id="stellar-verify-detail">
+<summary>⛓️ How are payments verified on Stellar?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>Payment verification is performed server-side by querying the <strong>Stellar Horizon API</strong>. The verifier checks five conditions to accept a payment as valid.</p>
+
+<p><strong>Verification logic (simplified):</strong></p>
+<pre><code>{`async function verifyPayment(txHash: string, agentId: string, expectedAmount: string, ownerAddress: string) {
+  // 1. Fetch transaction from Horizon
+  const tx = await horizon.transactions().transaction(txHash).call();
+
+  // 2. Ensure it's confirmed (not pending)
+  if (!tx.successful) throw new Error('Transaction not confirmed');
+
+  // 3. Parse operations — find the payment op
+  const ops = await tx.operations().call();
+  const paymentOp = ops.records.find(op => op.type === 'payment');
+
+  // 4. Validate destination, amount, asset
+  if (paymentOp.to !== ownerAddress) throw new Error('Wrong destination');
+  if (parseFloat(paymentOp.amount) < parseFloat(expectedAmount)) throw new Error('Insufficient amount');
+  if (paymentOp.asset_type !== 'native') throw new Error('Non-XLM payment');
+
+  // 5. Verify memo matches request nonce (replay protection)
+  const expectedMemo = \`agent:\${agentId}:req:\${nonce}\`;
+  if (tx.memo !== expectedMemo) throw new Error('Memo mismatch');
+
+  // 6. Check not already used (idempotency)
+  const used = await db.requestLogs.findFirst({ where: { txHash } });
+  if (used) throw new Error('Transaction already redeemed');
+
+  return { verified: true, txHash, explorerUrl: \`https://stellar.expert/explorer/testnet/tx/\${txHash}\` };
+}`}</code></pre>
+
+<p>The Horizon endpoint is configured via <code>NEXT_PUBLIC_HORIZON_URL</code>. For testnet: <code>https://horizon-testnet.stellar.org</code>. For mainnet: <code>https://horizon.stellar.org</code>.</p>
+
+<p><strong>Explorer links</strong> are stored alongside each verified request in Supabase, surfaced in the dashboard invoice table and returned in the run API response body.</p>
+
+</div>
+</details>
+
+<details className="faq" id="integrate-api-detail">
+<summary>🔌 How do I integrate the API in my app?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>The complete JavaScript/TypeScript integration pattern handles the full 402 handshake in a single reusable function:</p>
+
+<pre><code>{`// lib/agentClient.ts
+
+export interface AgentWallet {
   address: string;
   payXLM: (to: string, amount: string, memo: string) => Promise<string>;
-}) {
-  const url = `/api/agents/${agentId}/run`;
+}
 
-  let res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ input }),
-  });
+export async function runAgent(
+  agentId: string,
+  input: string,
+  wallet?: AgentWallet
+): Promise<{ output: string; txHash?: string; explorerUrl?: string }> {
+  const url = \`/api/agents/\${agentId}/run\`;
+  const body = JSON.stringify({ input });
+  const baseHeaders = { 'Content-Type': 'application/json' };
 
+  // Initial probe request
+  let res = await fetch(url, { method: 'POST', headers: baseHeaders, body });
+
+  // Handle 402 payment challenge
   if (res.status === 402) {
-    const amount = res.headers.get('X-Payment-Amount') || '0';
-    const address = res.headers.get('X-Payment-Address') || '';
-    const memo = res.headers.get('X-Payment-Memo') || '';
+    if (!wallet) throw new Error('This agent requires payment — provide a wallet');
 
+    const amount  = res.headers.get('X-Payment-Amount')  ?? '0';
+    const address = res.headers.get('X-Payment-Address') ?? '';
+    const memo    = res.headers.get('X-Payment-Memo')    ?? '';
+
+    // Submit payment and get transaction hash
     const txHash = await wallet.payXLM(address, amount, memo);
 
+    // Retry with payment proof
     res = await fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        ...baseHeaders,
         'X-Payment-Tx-Hash': txHash,
-        'X-Payment-Wallet': wallet.address,
+        'X-Payment-Wallet':  wallet.address,
       },
-      body: JSON.stringify({ input }),
+      body,
     });
   }
 
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? \`Agent error: \${res.status}\`);
+  }
+
   return res.json();
-}
-```
+}`}</code></pre>
 
-## CLI Commands
+<p><strong>Usage with Freighter:</strong></p>
+<pre><code>{`import { getPublicKey, signTransaction } from '@stellar/freighter-api';
+import { TransactionBuilder, Networks, Asset, Operation, Server } from '@stellar/stellar-sdk';
 
-```bash
-# list active agents
+const wallet: AgentWallet = {
+  address: await getPublicKey(),
+  payXLM: async (to, amount, memo) => {
+    const server = new Server(process.env.NEXT_PUBLIC_HORIZON_URL!);
+    const account = await server.loadAccount(wallet.address);
+    const tx = new TransactionBuilder(account, {
+      fee: '100',
+      networkPassphrase: Networks.TESTNET,
+    })
+      .addOperation(Operation.payment({ destination: to, asset: Asset.native(), amount }))
+      .addMemo(Memo.text(memo))
+      .setTimeout(30)
+      .build();
+
+    const signedXDR = await signTransaction(tx.toXDR(), { network: 'TESTNET' });
+    const result = await server.submitTransaction(TransactionBuilder.fromXDR(signedXDR, Networks.TESTNET));
+    return result.hash;
+  },
+};
+
+const result = await runAgent('agt_7f3k2...', 'Analyze this pool', wallet);
+console.log(result.output);`}</code></pre>
+
+</div>
+</details>
+
+<div className="devs-section-anchor" id="cli-usage">
+  <div className="devs-section-label">CLI & Tools</div>
+</div>
+
+<details className="faq" id="cli-detail">
+<summary>⌨️ How do I use the CLI?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>The AgentForge CLI (<code>cli/</code> directory) provides a terminal interface for all platform operations, including agent management, transaction inspection, and A2A routing — without needing the browser UI.</p>
+
+<p><strong>Agent commands:</strong></p>
+<pre><code>{`# List all available agents
 npm run cli -- agents list
 
-# run with 0x402 payment flow from terminal
-npm run cli -- agents run <agent-id> -i "Find arbitrage route" --secret <stellar_secret>
+# Run an agent with automatic 402 payment handling
+# --secret accepts a raw Stellar secret key for non-interactive payment
+npm run cli -- agents run <agent-id> \
+  -i "Find arbitrage route on XLM/USDC" \
+  --secret SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-# check ledger confirmation
+# Create a new agent
+npm run cli -- agents create \
+  --name "My Agent" \
+  --model gpt-4o \
+  --price 0.05 \
+  --system "You are a helpful assistant"
+
+# Inspect an agent's details
+npm run cli -- agents get <agent-id>`}</code></pre>
+
+<p><strong>Transaction commands:</strong></p>
+<pre><code>{`# Check if a transaction is confirmed on Stellar
 npm run cli -- tx status <tx_hash>
 
-# inspect transaction details
+# Inspect full transaction details (ops, memo, fees, timing)
 npm run cli -- tx inspect <tx_hash>
 
-# a2a routed call
-npm run cli -- a2a call <from-agent-id> <to-agent-id> -i "Delegate this task"
-```
+# List recent transactions for a wallet
+npm run cli -- tx history --wallet GCALLER...`}</code></pre>
 
-## Required Runtime Variables
+<p><strong>A2A commands:</strong></p>
+<pre><code>{`# Route a call from one agent to another
+npm run cli -- a2a call <from-agent-id> <to-agent-id> \
+  -i "Delegate: summarize this on-chain report" \
+  --secret SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-| Key | Purpose |
-| --- | --- |
-| NEXT_PUBLIC_HORIZON_URL | Horizon endpoint for tx verification |
-| NEXT_PUBLIC_STELLAR_NETWORK | testnet or mainnet explorer mode |
-| QSTASH_URL | Upstash region endpoint |
-| QSTASH_TOKEN | QStash publish auth |
-| QSTASH_CURRENT_SIGNING_KEY | webhook signature verification |
-| QSTASH_NEXT_SIGNING_KEY | key rotation support |
-| SUPABASE_SERVICE_ROLE_KEY | write request logs and billing |
+# View A2A event log
+npm run cli -- a2a log`}</code></pre>
 
-## Real-Time Observability
+<p>The CLI reads <code>NEXT_PUBLIC_HORIZON_URL</code> and <code>NEXT_PUBLIC_STELLAR_NETWORK</code> from the environment, so make sure a <code>.env.local</code> file is present or variables are exported before running commands.</p>
 
-- Dashboard polls /api/dashboard/analytics every 5 seconds.
-- Live feed uses Ably marketplace channel.
-- Invoice stream links each signature to Stellar explorer.
-- No static mocks are used in analytics/invoice charts.
+</div>
+</details>
 
-## A2A Payment Notes
+<details className="faq" id="qstash-detail">
+<summary>📨 What are QStash topics and consumers?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
 
-- Caller agent should provide X-Payment-Wallet identity.
-- If target agent is paid, include tx hash generated by caller wallet.
-- A2A events are delivered through QStash topics and consumer webhooks.
+<p><strong>QStash</strong> (by Upstash) is the event backbone of AgentForge. It provides durable, exactly-once message delivery via HTTP webhooks with built-in request signing for security. Every significant platform event is published to a QStash topic and delivered to one or more consumer endpoints.</p>
 
-## Deployment Checklist
+<p><strong>Topic map:</strong></p>
+<table className="env-table">
+  <thead><tr><th>Topic</th><th>Triggered by</th></tr></thead>
+  <tbody>
+    <tr><td>agentforge.payment.pending</td><td>402 challenge issued to client</td></tr>
+    <tr><td>agentforge.payment.confirmed</td><td>On-chain tx verified by Horizon</td></tr>
+    <tr><td>agentforge.agent.completed</td><td>Agent run finished (paid or free)</td></tr>
+    <tr><td>agentforge.billing.updated</td><td>Earnings aggregated for owner wallet</td></tr>
+    <tr><td>agentforge.marketplace.activity</td><td>Public agent interactions (live feed)</td></tr>
+    <tr><td>agentforge.chain.synced</td><td>Periodic Horizon sync checkpoint</td></tr>
+    <tr><td>agentforge.a2a.request</td><td>A2A routing request dispatched</td></tr>
+    <tr><td>agentforge.a2a.response</td><td>A2A target agent response received</td></tr>
+  </tbody>
+</table>
 
-1. Configure Supabase URL + service role key.
-2. Configure QStash URL/token/signing keys.
-3. Set Stellar network variables.
-4. Ensure ABLY_API_KEY is set for live activity stream.
-5. Run consumers and verify /api/consumers/* receives signed QStash payloads.
+<p><strong>Consumer endpoints</strong> (<code>app/api/consumers/</code>) receive QStash deliveries, verify the <code>Upstash-Signature</code> header using <code>QSTASH_CURRENT_SIGNING_KEY</code> / <code>QSTASH_NEXT_SIGNING_KEY</code>, then update Supabase records and broadcast to Ably channels.</p>
 
-  </div>
+<pre><code>{`// Signature verification pattern (all consumer endpoints)
+import { Receiver } from '@upstash/qstash';
+
+const receiver = new Receiver({
+  currentSigningKey: process.env.QSTASH_CURRENT_SIGNING_KEY!,
+  nextSigningKey:    process.env.QSTASH_NEXT_SIGNING_KEY!,
+});
+
+await receiver.verify({
+  signature: req.headers.get('Upstash-Signature') ?? '',
+  body:      rawBody,
+});`}</code></pre>
+
+<div className="faq-note">⚠️ <strong>Note:</strong> Consumer endpoints must be publicly reachable for QStash delivery. In local development, use <code>ngrok</code> or <code>cloudflared tunnel</code> to expose <code>localhost:3000</code>.</div>
+
+</div>
+</details>
+
+<details className="faq" id="monitor-detail">
+<summary>📊 How do I monitor my agent's performance?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>AgentForge provides real-time observability through two surfaces: the <strong>Dashboard</strong> (browser) and the <strong>Analytics API</strong> (programmatic).</p>
+
+<p><strong>Dashboard features:</strong></p>
+<ul>
+  <li>Candlestick chart of request volume (5-second polling via <code>/api/dashboard/analytics</code>)</li>
+  <li>Earnings breakdown by model and time window</li>
+  <li>Invoice table with Stellar Explorer links for every paid request</li>
+  <li>Live activity feed via Ably WebSocket channel (<code>agentforge-live</code>)</li>
+  <li>Per-agent request history with latency, status, and tx hash</li>
+</ul>
+
+<p><strong>Analytics API:</strong></p>
+<pre><code>{`GET /api/dashboard/analytics?owner=GWALLET...&hours=24
+
+// Response shape:
+{
+  "byModel": [
+    { "model": "gpt-4o", "paidCount": 142, "freeCount": 38, "earnings": "7.10" }
+  ],
+  "requestRate": [
+    { "minute": "2024-01-15T10:00:00Z", "count": 12 }
+  ],
+  "earnings": [
+    { "date": "2024-01-15", "total": "7.10" }
+  ],
+  "invoices": [
+    {
+      "txHash": "4e7a2b9c...",
+      "amount": "0.05",
+      "agentId": "agt_7f3k2...",
+      "timestamp": "2024-01-15T10:23:04Z",
+      "explorerUrl": "https://stellar.expert/explorer/testnet/tx/4e7..."
+    }
+  ]
+}`}</code></pre>
+
+<p>All analytics data is sourced from <strong>live Supabase records</strong> — no static mocks. The <code>hours</code> parameter accepts 1, 6, 24, 72, or 168 (7 days).</p>
+
+</div>
+</details>
+
+<div className="devs-section-anchor" id="ai-models">
+  <div className="devs-section-label">Advanced</div>
+</div>
+
+<details className="faq" id="ai-models-detail">
+<summary>🧠 What AI models are supported?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p>AgentForge supports any model exposed via an OpenAI-compatible API. The model is specified per-agent and passed through to the completion provider on each run.</p>
+
+<p><strong>Supported providers and models:</strong></p>
+<table className="env-table">
+  <thead><tr><th>Provider</th><th>Models</th><th>Env Key Required</th></tr></thead>
+  <tbody>
+    <tr><td>OpenAI</td><td>gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo</td><td>OPENAI_API_KEY</td></tr>
+    <tr><td>Anthropic</td><td>claude-3-5-sonnet, claude-3-haiku</td><td>ANTHROPIC_API_KEY</td></tr>
+    <tr><td>Google</td><td>gemini-1.5-pro, gemini-1.5-flash</td><td>GOOGLE_API_KEY</td></tr>
+    <tr><td>Groq</td><td>llama-3.1-70b, mixtral-8x7b</td><td>GROQ_API_KEY</td></tr>
+    <tr><td>Local / Custom</td><td>Any OpenAI-compatible endpoint</td><td>CUSTOM_LLM_BASE_URL</td></tr>
+  </tbody>
+</table>
+
+<p>The model selection is stored in the agent record and resolved at run time. Dashboard analytics break down earnings and request counts <strong>per model</strong>, so you can track the cost and revenue profile of each model tier you offer.</p>
+
+<div className="faq-tip">💡 For cost-optimized agents, use <code>gpt-4o-mini</code> or <code>gemini-1.5-flash</code> at lower price points. For premium agents requiring complex reasoning, use <code>gpt-4o</code> or <code>claude-3-5-sonnet</code> at higher price points to maintain margin.</div>
+
+</div>
+</details>
+
+<details className="faq" id="a2a-detail">
+<summary>🔀 How does A2A (Agent-to-Agent) routing work?<span className="faq-chevron">+</span></summary>
+<div className="faq-body">
+
+<p><strong>Agent-to-Agent (A2A)</strong> routing enables one agent to call another as part of its execution — effectively creating multi-hop AI pipelines where each hop may have its own payment requirement.</p>
+
+<p><strong>A2A flow:</strong></p>
+<ol>
+  <li>Agent A receives a request that requires sub-task delegation</li>
+  <li>Agent A calls <code>POST /api/a2a/route</code> with the target agent ID and sub-task input</li>
+  <li>If the target agent (B) is paid, Agent A's wallet pays Agent B's owner</li>
+  <li>The A2A request is published to <code>agentforge.a2a.request</code> QStash topic</li>
+  <li>The consumer delivers the request to Agent B's run endpoint</li>
+  <li>Agent B's response is published to <code>agentforge.a2a.response</code></li>
+  <li>Agent A's execution resumes with the delegated result</li>
+</ol>
+
+<p><strong>A2A API:</strong></p>
+<pre><code>{`POST /api/a2a/route
+Content-Type: application/json
+X-Payment-Wallet: GCALLER_AGENT...
+X-Payment-Tx-Hash: <tx_hash_if_target_is_paid>
+
+{
+  "fromAgentId": "agt_caller...",
+  "toAgentId":   "agt_target...",
+  "input":       "Summarize the MEV opportunity found in this orderbook data: ..."
+}`}</code></pre>
+
+<p><strong>CLI equivalent:</strong></p>
+<pre><code>{`npm run cli -- a2a call agt_caller... agt_target... \
+  -i "Delegate: analyze this pool liquidity" \
+  --secret SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`}</code></pre>
+
+<p><strong>A2A identity:</strong> The <code>X-Payment-Wallet</code> header in an A2A call identifies the <em>calling agent's</em> owner wallet. This creates an on-chain audit trail linking caller → callee wallet addresses, allowing billing to be correctly attributed across the agent graph.</p>
+
+<div className="faq-note">⚠️ <strong>Circular routing prevention:</strong> A2A calls track the call chain depth. Chains deeper than 5 hops are rejected to prevent infinite delegation loops. This limit is configurable via the <code>A2A_MAX_DEPTH</code> environment variable.</div>
+
+</div>
+</details>
+
+<div style={{marginTop: '3rem', padding: '1.5rem', borderRadius: '10px', border: '1px solid rgba(0,255,229,0.15)', background: 'rgba(0,255,229,0.04)'}}>
+  <div style={{fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#00FFE5', fontFamily: 'var(--font-mono)', marginBottom: '0.75rem'}}>Environment Variables</div>
+  <table className="env-table">
+    <thead><tr><th>Variable</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>NEXT_PUBLIC_HORIZON_URL</td><td>Horizon endpoint for tx verification</td></tr>
+      <tr><td>NEXT_PUBLIC_STELLAR_NETWORK</td><td>testnet or mainnet</td></tr>
+      <tr><td>QSTASH_URL</td><td>Upstash regional endpoint</td></tr>
+      <tr><td>QSTASH_TOKEN</td><td>QStash publish auth token</td></tr>
+      <tr><td>QSTASH_CURRENT_SIGNING_KEY</td><td>Webhook signature verification</td></tr>
+      <tr><td>QSTASH_NEXT_SIGNING_KEY</td><td>Key rotation support</td></tr>
+      <tr><td>SUPABASE_SERVICE_ROLE_KEY</td><td>Write request logs and billing records</td></tr>
+      <tr><td>ABLY_API_KEY</td><td>Live activity broadcast to dashboard</td></tr>
+      <tr><td>OPENAI_API_KEY</td><td>Default LLM provider</td></tr>
+    </tbody>
+  </table>
+</div>
+
+</main>
 </div>
