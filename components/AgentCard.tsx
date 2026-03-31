@@ -144,8 +144,11 @@ export default function AgentCard({ agent, onFork }: AgentCardProps) {
             </div>
 
             <div
+              role="button"
+              tabIndex={0}
               className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[rgba(0,255,229,0.25)] bg-[rgba(0,255,229,0.03)] py-8 px-4 cursor-pointer hover:border-[rgba(0,255,229,0.5)] transition-all"
               onClick={() => document.getElementById(`strategy-file-${agent.id}`)?.click()}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') document.getElementById(`strategy-file-${agent.id}`)?.click(); }}
             >
               <span className="text-2xl">📄</span>
               <p className="text-xs font-mono text-gray-400 text-center">
