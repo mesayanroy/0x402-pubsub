@@ -4,10 +4,10 @@
  * HeroScene — Three.js orbital network visualization.
  *
  * Renders an immersive 3-D particle network that represents agents
- * communicating over the 0x402 protocol and Kafka pub-sub backbone:
+ * communicating over the 0x402 protocol and QStash pub-sub backbone:
  *
  * - Core sphere: the Stellar ledger / smart contract hub
- * - Orbital rings: three Kafka topic planes (payment, agent, chain)
+ * - Orbital rings: three QStash topic planes (payment, agent, chain)
  * - Nodes on the rings: individual agents
  * - Animated pulses along connecting lines: live payment flows
  * - Background starfield: the wider DeFi ecosystem
@@ -110,7 +110,7 @@ export default function HeroScene() {
       return group;
     }
 
-    // ── Orbital rings (Kafka topics) ─────────────────────────────────────────
+    // ── Orbital rings (QStash topics) ────────────────────────────────────────
     const ringColors  = [C.teal, C.violet, C.amber];
     const ringGroups: THREE.Group[] = [];
 

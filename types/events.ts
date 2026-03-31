@@ -1,7 +1,7 @@
 /**
  * types/events.ts
  *
- * Strongly-typed event payloads for every Kafka topic used by AgentForge.
+ * Strongly-typed event payloads for every QStash topic used by AgentForge.
  * Import from here to ensure producers and consumers agree on the schema.
  */
 
@@ -91,6 +91,10 @@ export interface MarketplaceActivityEvent {
   callerWallet?: string;
   ownerWallet: string;
   priceXlm?: number;
+  txHash?: string;
+  txExplorerUrl?: string;
+  model?: string;
+  invoiceId?: string;
   totalEarnedXlm?: number;
   totalRequests?: number;
   /** ISO-8601 timestamp. */

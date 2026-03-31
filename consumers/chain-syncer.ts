@@ -9,7 +9,7 @@
  * deployment account and emits a ChainSyncedEvent for each new ledger entry.
  */
 
-import { createConsumer, publish, TOPICS } from '../lib/kafka';
+import { createConsumer, publish, TOPICS } from '../lib/qstash';
 import { watchAccountTransactions } from '../lib/stellar';
 import type { ChainSyncedEvent } from '../types/events';
 
@@ -18,7 +18,7 @@ const CONTRACT_ID = process.env.NEXT_PUBLIC_SOROBAN_CONTRACT_ID || '';
 
 /**
  * Start the Horizon SSE watcher for the Soroban contract account and re-publish
- * to Kafka so downstream services can react without coupling to Horizon directly.
+ * to QStash so downstream services can react without coupling to Horizon directly.
  */
 export function startChainSyncerStream(): () => void {
   if (!CONTRACT_ID) {
@@ -56,7 +56,7 @@ export function startChainSyncerStream(): () => void {
 }
 
 /**
- * Kafka consumer for chain.synced events (so other microservices can react
+ * QStash consumer for chain.synced events (so other microservices can react
  * without connecting to Horizon themselves).
  */
 export const chainSyncedConsumer = createConsumer<ChainSyncedEvent>(

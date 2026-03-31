@@ -9,7 +9,7 @@
  *   • Agent Executor
  *   • Billing Aggregator
  *   • Marketplace Feed (two sub-consumers)
- *   • Chain Syncer (Kafka consumer + Horizon SSE stream)
+ *   • Chain Syncer (qstash consumer + Horizon SSE stream)
  *   • A2A Router
  */
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
+import AppShell from "@/components/AppShell";
 
 export const metadata: Metadata = {
   title: "AgentForge — AI Agent Marketplace on Stellar",
@@ -21,7 +22,9 @@ export default function RootLayout({
       </head>
       <body className="font-sans antialiased bg-[#050508] text-white">
         <Navbar />
-        <main className="pt-16">{children}</main>
+        <main className="pt-16">
+          <AppShell>{children}</AppShell>
+        </main>
       </body>
     </html>
   );

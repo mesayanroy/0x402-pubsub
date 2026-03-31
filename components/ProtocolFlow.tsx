@@ -2,10 +2,10 @@
 
 /**
  * ProtocolFlow — animated diagram showing how the 0x402 payment protocol
- * and Kafka pub-sub backbone connect agents and the platform.
+ * and QStash pub-sub backbone connect agents and the platform.
  *
  * Layout (left → right):
- *   [Agent SDK] →[0x402 Challenge]→ [Platform API] →[Kafka Topics]→ [Dashboard]
+ *   [Agent SDK] →[0x402 Challenge]→ [Platform API] →[QStash Topics]→ [Dashboard]
  */
 
 import { motion } from 'framer-motion';
@@ -46,7 +46,7 @@ const STEPS: FlowStep[] = [
   },
   {
     id:    4,
-    label: 'Kafka Pub-Sub',
+    label: 'QStash Pub-Sub',
     sub:   'Upstash · 8 topics',
     color: 'text-[#4ade80]',
     border:'border-[rgba(74,222,128,0.3)]',

@@ -7,12 +7,12 @@
  *  1. Builds a MarketplaceActivityEvent.
  *  2. Publishes it to Ably channel "marketplace" so the frontend hook can
  *     update the live feed without polling.
- *  3. Also publishes `agentforge.marketplace.activity` to Kafka so other
+ *  3. Also publishes `agentforge.marketplace.activity` to qstash so other
  *     consumers can react to marketplace events.
  */
 
 import Ably from 'ably';
-import { createConsumer, publish, TOPICS } from '../lib/kafka';
+import { createConsumer, publish, TOPICS } from '../lib/qstash';
 import type {
   AgentCompletedEvent,
   BillingUpdatedEvent,

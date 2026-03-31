@@ -7,29 +7,13 @@ import { Agent } from '@/types';
 import TerminalOutput from '@/components/TerminalOutput';
 import PaymentModal from '@/components/PaymentModal';
 import { truncateAddress } from '@/lib/stellar';
-
-const MOCK_AGENT: Agent = {
-  id: '1',
-  owner_wallet: 'GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234XYZ1',
-  name: 'DeFi Analyst',
-  description: 'Analyzes DeFi protocols, yields, and on-chain metrics in real time using live blockchain data.',
-  tags: ['web3', 'finance', 'defi'],
-  model: 'openai-gpt4o-mini',
-  system_prompt: 'You are a DeFi analyst...',
-  tools: ['on_chain_data', 'web_search'],
-  price_xlm: 0.05,
-  visibility: 'public',
-  api_endpoint: 'https://agentforge.dev/api/agents/1/run',
-  total_requests: 1420,
-  total_earned_xlm: 71.0,
-  is_active: true,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
+import { useMarketplaceFeed } from '@/hooks/useMarketplaceFeed';
 
 export default function AgentDetailPage() {
   const { id } = useParams();
-  const [agent, setAgent] = useState<Agent>(MOCK_AGENT);
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -41,32 +25,45 @@ export default function AgentDetailPage() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const agentId = Array.isArray(id) ? id[0] : id ?? '';
+
+  // Real-time feed filtered to this agent's activity
+  const { events: realtimeEvents, isConnected } = useMarketplaceFeed({ maxEvents: 5 });
+  const agentEvents = realtimeEvents.filter((e) => e.agentId === agentId);
+
   useEffect(() => {
     const fetchAgent = async () => {
+      setLoading(true);
       try {
-        const res = await fetch(`/api/agents/${id}`);
+        const res = await fetch(`/api/agents/${agentId}`);
         if (res.ok) {
           const data = await res.json();
           setAgent(data);
+        } else if (res.status === 404) {
+          setNotFound(true);
+        } else {
+          setError('Failed to load agent details.');
         }
       } catch {
-        // use mock
+        setError('Failed to load agent details.');
+      } finally {
+        setLoading(false);
       }
     };
-    fetchAgent();
-  }, [id]);
+    if (agentId) fetchAgent();
+  }, [agentId]);
 
-  const runAgent = async (txHash?: string) => {
+  const runAgent = async (txHash?: string, signerWallet?: string) => {
     setRunning(true);
     setError(null);
     try {
-      const walletAddress = localStorage.getItem('wallet_address');
+      const walletAddress = signerWallet || localStorage.getItem('wallet_address');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (txHash) {
         headers['X-Payment-Tx-Hash'] = txHash;
         if (walletAddress) headers['X-Payment-Wallet'] = walletAddress;
       }
-      const res = await fetch(`/api/agents/${id}/run`, {
+      const res = await fetch(`/api/agents/${agentId}/run`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ input }),
@@ -77,7 +74,7 @@ export default function AgentDetailPage() {
           setPaymentChallenge({
             memo: data.payment_details.memo,
             address: data.payment_details.address,
-            amountXlm: Number(data.payment_details.amount_xlm ?? agent.price_xlm),
+            amountXlm: Number(data.payment_details.amount_xlm ?? agent?.price_xlm ?? 0),
           });
         }
         setPaymentModal(true);
@@ -92,9 +89,35 @@ export default function AgentDetailPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-500 font-mono text-sm">Loading agent...</div>
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="font-syne text-2xl font-bold text-white mb-3">Agent Not Found</h2>
+          <p className="text-gray-400 font-mono text-sm">
+            The agent with ID <span className="text-[#00FFE5]">{agentId}</span> does not exist or has been removed.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!agent) return null;
+
+  const totalRequests = Number(agent.total_requests ?? 0);
+  const totalEarnedXlm = Number(agent.total_earned_xlm ?? 0);
+
   const apiDocsContent = `## Agent API Docs
 
-Endpoint: POST ${agent.api_endpoint || `https://agentforge.dev/api/agents/${id}/run`}
+Endpoint: POST ${agent.api_endpoint || `https://agentforge.dev/api/agents/${agentId}/run`}
 Auth: Bearer {your_api_key}
 Payment: 0x402 — ${agent.price_xlm} XLM per request
 
@@ -145,8 +168,8 @@ X-Payment-Wallet: {your_G_address}
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4">
             {[
-              { label: 'Total Requests', value: agent.total_requests.toLocaleString() },
-              { label: 'Total Earned', value: `${agent.total_earned_xlm} XLM` },
+              { label: 'Total Requests', value: totalRequests.toLocaleString() },
+              { label: 'Total Earned', value: `${totalEarnedXlm} XLM` },
               { label: 'Owner', value: truncateAddress(agent.owner_wallet) },
             ].map((stat) => (
               <div
@@ -187,6 +210,45 @@ X-Payment-Wallet: {your_G_address}
             <TerminalOutput content={output} title="response" language="json" />
           )}
 
+          {/* Real-time activity feed for this agent */}
+          <div className="rounded-2xl border border-white/[0.06] bg-[rgba(5,5,8,0.85)] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-[#00FFE5] animate-pulse' : 'bg-amber-400'}`} />
+                <span className="font-mono text-xs text-white/70">Live Transactions</span>
+              </div>
+              <span className="font-mono text-[10px] text-white/30">{isConnected ? 'connected' : 'connecting'} · Stellar</span>
+            </div>
+            <div className="divide-y divide-white/[0.03]">
+              {agentEvents.length === 0 ? (
+                <div className="px-5 py-4 font-mono text-xs text-white/40">
+                  No activity yet for this agent. Run a request to see real-time events.
+                </div>
+              ) : (
+                agentEvents.map((ev, idx) => (
+                  <div key={`${ev.timestamp}-${idx}`} className="flex items-center justify-between px-5 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono border uppercase tracking-wide bg-[rgba(0,255,229,0.1)] border-[rgba(0,255,229,0.3)] text-[#00FFE5]">
+                        {ev.eventType.replace(/_/g, '\u00A0')}
+                      </span>
+                      <span className="font-mono text-xs text-white/50">
+                        {ev.callerWallet ? truncateAddress(ev.callerWallet) : 'anonymous'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {typeof ev.priceXlm === 'number' && ev.priceXlm > 0 && (
+                        <span className="font-mono text-xs text-[#4ade80]">+{ev.priceXlm.toFixed(2)} XLM</span>
+                      )}
+                      <span className="font-mono text-[10px] text-white/30">
+                        {new Date(ev.timestamp).toLocaleTimeString('en-US', { hour12: false })}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           {/* API Docs */}
           <div>
             <h2 className="font-syne text-xl font-bold text-white mb-4">API Documentation</h2>
@@ -203,9 +265,9 @@ X-Payment-Wallet: {your_G_address}
         priceXlm={paymentChallenge?.amountXlm ?? agent.price_xlm}
         ownerAddress={paymentChallenge?.address ?? agent.owner_wallet}
         paymentMemo={paymentChallenge?.memo ?? `agent:${agent.id}`}
-        onPaymentSuccess={(txHash) => {
+        onPaymentSuccess={(txHash, signerWallet) => {
           setPaymentModal(false);
-          runAgent(txHash);
+          runAgent(txHash, signerWallet);
         }}
       />
     </div>

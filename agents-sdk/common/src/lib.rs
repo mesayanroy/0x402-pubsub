@@ -7,7 +7,7 @@
 //! - [`stellar_tx`]  — Transaction envelope builder & fee-bump helpers
 //! - [`config`]      — Common environment-variable configuration
 //! - [`payment`]     — 0x402 protocol client: pay-per-request HTTP with auto payment dance
-//! - [`pubsub`]      — Upstash Kafka REST producer for publishing agent events to the platform
+//! - [`pubsub`]      — Upstash QStash producer for publishing agent events to the platform
 
 pub mod config;
 pub mod horizon;
@@ -21,7 +21,7 @@ pub use config::CommonConfig;
 pub use horizon::{Asset, HorizonClient, OrderBook, OrderBookLevel};
 pub use payment::PaymentClient;
 pub use pubsub::{
-    now_iso, AgentActionEvent, ChainEvent, KafkaPublisher, PaymentReceivedEvent,
+    now_iso, AgentActionEvent, ChainEvent, KafkaPublisher, PaymentReceivedEvent, QStashPublisher,
     TOPIC_AGENT_COMPLETED, TOPIC_MARKETPLACE_ACTIVITY,
 };
 pub use stellar_tx::{OperationBody, TransactionBuilder};

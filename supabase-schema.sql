@@ -1,84 +1,153 @@
 -- ================================================
 -- AgentForge Database Schema (Supabase / PostgreSQL)
+-- Safe to re-run (idempotent)
 -- ================================================
 
--- Users / Wallet Owners
-CREATE TABLE users (
+-- USERS
+CREATE TABLE IF NOT EXISTS public.users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  wallet_address TEXT UNIQUE NOT NULL,  -- Stellar public key (G...)
+  wallet_address TEXT UNIQUE NOT NULL,
   username TEXT,
   bio TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Agents
-CREATE TABLE agents (
+-- AGENTS
+CREATE TABLE IF NOT EXISTS public.agents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_wallet TEXT NOT NULL REFERENCES users(wallet_address),
+  owner_wallet TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
   tags TEXT[],
-  model TEXT NOT NULL CHECK (model IN ('openai-gpt4o-mini', 'anthropic-claude-haiku')),
-  system_prompt TEXT NOT NULL,
+  model TEXT DEFAULT 'openai-gpt4o-mini',
+  system_prompt TEXT DEFAULT '',
   tools JSONB DEFAULT '[]',
   price_xlm NUMERIC(10,4) DEFAULT 0.01,
   visibility TEXT DEFAULT 'public' CHECK (visibility IN ('public', 'private', 'forked')),
-  forked_from UUID REFERENCES agents(id),
+  forked_from UUID,
   api_endpoint TEXT,
   api_key TEXT,
   soroban_contract_id TEXT,
-  on_chain_node_id TEXT,
-  total_requests INT DEFAULT 0,
-  total_earned_xlm NUMERIC(12,4) DEFAULT 0,
+  total_requests BIGINT DEFAULT 0,
+  total_earned_xlm NUMERIC(16,4) DEFAULT 0,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Agent Requests (per-request log for 0x402)
-CREATE TABLE agent_requests (
+-- Add missing columns to existing agents table (idempotent migrations)
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS model TEXT DEFAULT 'openai-gpt4o-mini';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS system_prompt TEXT DEFAULT '';
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS total_requests BIGINT DEFAULT 0;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS total_earned_xlm NUMERIC(16,4) DEFAULT 0;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
+-- AGENT REQUESTS
+CREATE TABLE IF NOT EXISTS public.agent_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id UUID NOT NULL REFERENCES agents(id),
+  agent_id UUID NOT NULL,
   caller_wallet TEXT,
   caller_ip TEXT,
   input_payload JSONB,
-  output_response JSONB,
+  output_payload JSONB,
   payment_tx_hash TEXT,
-  payment_amount_xlm NUMERIC(10,4),
-  protocol TEXT DEFAULT '0x402',
-  status TEXT DEFAULT 'success' CHECK (status IN ('success', 'failed', 'pending')),
-  latency_ms INT,
+  payment_amount_xlm NUMERIC(12,4) DEFAULT 0,
+  latency_ms INTEGER,
+  tx_explorer_url TEXT,
+  status TEXT DEFAULT 'pending',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Forks
-CREATE TABLE agent_forks (
+-- Add missing columns to existing agent_requests table (idempotent migrations)
+ALTER TABLE public.agent_requests ADD COLUMN IF NOT EXISTS payment_amount_xlm NUMERIC(12,4) DEFAULT 0;
+ALTER TABLE public.agent_requests ADD COLUMN IF NOT EXISTS latency_ms INTEGER;
+ALTER TABLE public.agent_requests ADD COLUMN IF NOT EXISTS tx_explorer_url TEXT;
+
+-- INVOICES
+CREATE TABLE IF NOT EXISTS public.invoices (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  original_agent_id UUID REFERENCES agents(id),
-  forked_agent_id UUID REFERENCES agents(id),
+  request_id UUID UNIQUE,
+  agent_id UUID NOT NULL,
+  owner_wallet TEXT NOT NULL,
+  caller_wallet TEXT,
+  amount_xlm NUMERIC(12,4) NOT NULL,
+  tx_hash TEXT,
+  tx_explorer_url TEXT,
+  payment_tx_hash TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Add missing columns to existing invoices table (idempotent migrations)
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS tx_explorer_url TEXT;
+
+-- AGENT FORKS
+CREATE TABLE IF NOT EXISTS public.agent_forks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  original_agent_id UUID,
+  forked_agent_id UUID,
   forked_by_wallet TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- API Keys
-CREATE TABLE api_keys (
+-- API KEYS
+CREATE TABLE IF NOT EXISTS public.api_keys (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  agent_id UUID REFERENCES agents(id),
+  agent_id UUID,
   owner_wallet TEXT,
   key_hash TEXT UNIQUE NOT NULL,
   label TEXT,
-  last_used TIMESTAMPTZ,
-  is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Indexes
-CREATE INDEX idx_agents_owner ON agents(owner_wallet);
-CREATE INDEX idx_agents_visibility ON agents(visibility) WHERE is_active = true;
-CREATE INDEX idx_agent_requests_agent ON agent_requests(agent_id);
-CREATE INDEX idx_agent_requests_created ON agent_requests(created_at DESC);
-CREATE INDEX idx_api_keys_hash ON api_keys(key_hash) WHERE is_active = true;
+-- =================================================
+-- INDEXES (FIXED + SCHEMA QUALIFIED)
+-- =================================================
 
--- Row Level Security (optional — enable for user-scoped access)
--- ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE agent_requests ENABLE ROW LEVEL SECURITY;
+-- Agents
+DROP INDEX IF EXISTS idx_agents_owner;
+CREATE INDEX IF NOT EXISTS idx_agents_owner
+ON public.agents(owner_wallet);
+
+DROP INDEX IF EXISTS idx_agents_visibility;
+CREATE INDEX IF NOT EXISTS idx_agents_visibility
+ON public.agents(visibility);
+
+CREATE INDEX IF NOT EXISTS idx_agents_is_active
+ON public.agents(is_active);
+
+-- Agent Requests
+DROP INDEX IF EXISTS idx_agent_requests_agent;
+CREATE INDEX IF NOT EXISTS idx_agent_requests_agent
+ON public.agent_requests(agent_id);
+
+DROP INDEX IF EXISTS idx_agent_requests_created;
+CREATE INDEX IF NOT EXISTS idx_agent_requests_created
+ON public.agent_requests(created_at DESC);
+
+DROP INDEX IF EXISTS idx_agent_requests_tx_hash;
+CREATE INDEX IF NOT EXISTS idx_agent_requests_tx_hash
+ON public.agent_requests(payment_tx_hash);
+
+-- Invoices
+DROP INDEX IF EXISTS idx_invoices_owner_created;
+CREATE INDEX IF NOT EXISTS idx_invoices_owner_created
+ON public.invoices(owner_wallet, created_at DESC);
+
+-- API Keys
+DROP INDEX IF EXISTS idx_api_keys_hash;
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash
+ON public.api_keys(key_hash);
+
+-- =================================================
+-- ROW LEVEL SECURITY (UNCHANGED - DISABLED)
+-- =================================================
+
+ALTER TABLE public.users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agents DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agent_requests DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invoices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agent_forks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.api_keys DISABLE ROW LEVEL SECURITY;

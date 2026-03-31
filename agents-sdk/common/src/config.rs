@@ -45,15 +45,18 @@ impl CommonConfig {
             .unwrap_or_else(|_| "https://horizon-testnet.stellar.org".to_string());
 
         let network_passphrase = std::env::var("STELLAR_NETWORK_PASSPHRASE")
+            .or_else(|_| std::env::var("NETWORK_PASSPHRASE"))
             .unwrap_or_else(|_| TESTNET_PASSPHRASE.to_string());
 
         let soroban_rpc_url = std::env::var("SOROBAN_RPC_URL")
             .unwrap_or_else(|_| "https://soroban-testnet.stellar.org".to_string());
 
         let contract_id = std::env::var("SOROBAN_CONTRACT_ID")
+            .or_else(|_| std::env::var("CONTRACT_ID"))
             .unwrap_or_default();
 
         let agent_secret = std::env::var("AGENT_SECRET_KEY")
+            .or_else(|_| std::env::var("AGENT_SECRET"))
             .context("AGENT_SECRET_KEY env var is required")?;
 
         let base_fee_stroops = std::env::var("BASE_FEE_STROOPS")

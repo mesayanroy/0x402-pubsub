@@ -1,12 +1,12 @@
-//! Kafka pub-sub client for agent event publishing.
+//! QStash pub-sub client for agent event publishing.
 //!
-//! Agents publish structured events to the AgentForge Kafka backbone so that:
+//! Agents publish structured events to the AgentForge QStash backbone so that:
 //! - The platform dashboard can display real-time activity
 //! - Other agents can subscribe and react (A2A coordination)
 //! - Billing and analytics consumers can process earnings
 //!
-//! This implementation talks to Upstash Kafka via its REST API, which
-//! requires no native TCP socket — compatible with any deployment target.
+//! This implementation talks to Upstash QStash via HTTP push, which requires
+//! no native broker socket and works in constrained regions.
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 // ── Topic constants ───────────────────────────────────────────────────────────
 //
-// Keep in sync with `lib/kafka.ts` in the Next.js platform.
+// Keep in sync with `lib/qstash.ts` in the Next.js platform.
 
 pub const TOPIC_PAYMENT_PENDING:    &str = "agentforge.payment.pending";
 pub const TOPIC_PAYMENT_CONFIRMED:  &str = "agentforge.payment.confirmed";
@@ -66,75 +66,88 @@ pub struct ChainEvent {
 
 // ── Client ────────────────────────────────────────────────────────────────────
 
-/// Upstash Kafka REST producer client.
+/// Upstash QStash REST producer client.
 ///
 /// Instantiate once and pass a shared reference to all agent modules.
 /// All methods are cheap-to-clone thanks to the inner `Arc<Client>`.
 #[derive(Clone)]
-pub struct KafkaPublisher {
-    http:     Client,
-    url:      String,
-    username: String,
-    password: String,
-    enabled:  bool,
+pub struct QStashPublisher {
+    http:          Client,
+    qstash_url:    String,
+    qstash_token:  String,
+    platform_url:  String,
+    enabled:       bool,
 }
 
-impl KafkaPublisher {
+impl QStashPublisher {
     /// Create from environment variables.
     ///
-    /// If `UPSTASH_KAFKA_BROKER` is not set, the publisher is created in
+    /// If QStash variables are not set, the publisher is created in
     /// **disabled** mode — `publish` calls become silent no-ops.
     pub fn from_env() -> Self {
-        let url      = std::env::var("UPSTASH_KAFKA_BROKER").unwrap_or_default();
-        let username = std::env::var("UPSTASH_KAFKA_USERNAME").unwrap_or_default();
-        let password = std::env::var("UPSTASH_KAFKA_PASSWORD").unwrap_or_default();
+        let qstash_url = std::env::var("QSTASH_URL")
+            .unwrap_or_else(|_| "https://qstash.upstash.io".to_string());
+        let qstash_token = std::env::var("QSTASH_TOKEN").unwrap_or_default();
+        let platform_url = std::env::var("PLATFORM_API_URL")
+            .unwrap_or_else(|_| "http://localhost:3000".to_string())
+            .trim_end_matches('/')
+            .to_string();
 
-        let enabled = !url.is_empty() && !username.is_empty() && !password.is_empty();
+        let enabled = !qstash_token.is_empty();
 
         if !enabled {
-            warn!("Kafka not configured (UPSTASH_KAFKA_* vars missing) — pub-sub disabled");
+            warn!("QStash not configured (QSTASH_TOKEN missing) — pub-sub disabled");
         }
 
         let http = Client::builder()
             .timeout(Duration::from_secs(5))
             .build()
-            .expect("Kafka HTTP client init failed");
+            .expect("QStash HTTP client init failed");
 
-        Self { http, url, username, password, enabled }
+        Self {
+            http,
+            qstash_url,
+            qstash_token,
+            platform_url,
+            enabled,
+        }
+    }
+
+    fn topic_to_slug(topic: &str) -> String {
+        topic.replace('.', "-")
     }
 
     /// Publish a JSON-serialisable payload to a topic.
     ///
     /// Fire-and-forget: errors are logged as warnings but do **not** propagate
-    /// to the caller — a Kafka publish failure must never abort a trade.
+    /// to the caller — a publish failure must never abort a trade.
     pub async fn publish<T: Serialize>(&self, topic: &str, payload: &T) {
         if !self.enabled { return; }
 
-        let value = match serde_json::to_string(payload) {
-            Ok(v)  => v,
-            Err(e) => { warn!("Kafka serialize error: {e}"); return; }
-        };
-
-        // Upstash Kafka REST API: POST /produce/{topic}
-        let url = format!("{}/produce/{topic}", self.url);
-        let body = serde_json::json!({ "value": value });
+        let slug = Self::topic_to_slug(topic);
+        let destination = format!("{}/api/consumers/{}", self.platform_url, slug);
+        let qstash_url = format!(
+            "{}/v2/publish/{}",
+            self.qstash_url.trim_end_matches('/'),
+            destination
+        );
 
         match self
             .http
-            .post(&url)
-            .basic_auth(&self.username, Some(&self.password))
-            .json(&body)
+            .post(&qstash_url)
+            .bearer_auth(&self.qstash_token)
+            .json(payload)
             .send()
             .await
         {
             Ok(resp) if resp.status().is_success() => {
-                debug!("Published to Kafka topic {topic}");
+                debug!("Published to QStash topic {topic}");
             }
             Ok(resp) => {
-                warn!("Kafka publish non-success {} for topic {topic}", resp.status());
+                warn!("QStash publish non-success {} for topic {topic}", resp.status());
             }
             Err(e) => {
-                warn!("Kafka publish error for topic {topic}: {e}");
+                warn!("QStash publish error for topic {topic}: {e}");
             }
         }
     }
@@ -156,6 +169,9 @@ impl KafkaPublisher {
         self.publish(TOPIC_CHAIN_SYNCED, evt).await;
     }
 }
+
+/// Backward-compat alias for older modules that still import `KafkaPublisher`.
+pub type KafkaPublisher = QStashPublisher;
 
 // ── Timestamp helper ──────────────────────────────────────────────────────────
 
