@@ -4,12 +4,39 @@
 
 AgentForge is a full-stack protocol and product for building, deploying, monetizing, and executing AI agents with verifiable payment rails on Stellar.
 
+Full architecture document: [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md)
+
 It combines:
 - Soroban contracts for on-chain registry and deployment validation
 - HTTP 402-inspired pay-per-request execution in XLM
 - Wallet-signature UX with Freighter
 - Realtime pub/sub pipeline for events and analytics
 - Agent marketplace, fork economy, workflow executor, and trading surface
+
+Place the provided screenshots in this folder with the following names so README renders them automatically:
+
+1. fork-wallet-confirm.png
+![alt text](<Screenshot 2026-03-31 231647.png>)
+2. stellar-explorer-proof.png
+![alt text](<Screenshot 2026-03-31 231713.png>)
+3. marketplace-fork-success.png
+![alt text](<Screenshot 2026-03-31 231815.png>)
+4. run-payment-modal.png
+![alt text](<Screenshot 2026-03-31 232001.png>)
+5. run-summary-live-feed.png
+![alt text](<Screenshot 2026-03-31 232029.png>)
+6. build-validation-sign.png
+![alt text](<Screenshot 2026-03-31 232308.png>)
+7. trading-surface.png
+![alt text](<Screenshot 2026-03-31 232426.png>)
+8. workflow-waiting-signature.png
+![alt text](<Screenshot 2026-03-31 232659.png>)
+9. workflow-invoice-confirmed.png
+![alt text](<Screenshot 2026-03-31 232844.png>)
+10. dashboard-analytics.png
+![alt text](<Screenshot 2026-03-31 232950.png>)
+
+After adding images, commit and push. The main README references these paths directly.
 
 ## Why This Project Exists
 
@@ -137,6 +164,22 @@ Primary proof transaction (fork payment):
 9. Workflow executor waiting state proves asynchronous task orchestration blocked on wallet payment signature.
 10. Workflow invoice panel provides structured proof payload: tx hash, payer, amount, timestamp, explorer link.
 11. Dashboard panels aggregate monetization telemetry and request analytics after protocol interactions.
+
+## Screenshot Evidence Gallery
+
+The project includes a structured evidence gallery in [public/evidence/README.md](public/evidence/README.md).
+
+![Fork wallet confirmation](public/evidence/fork-wallet-confirm.png)
+![Stellar explorer transaction proof](public/evidence/stellar-explorer-proof.png)
+![Marketplace fork success](public/evidence/marketplace-fork-success.png)
+![Run payment modal](public/evidence/run-payment-modal.png)
+![Run summary and live feed](public/evidence/run-summary-live-feed.png)
+![Build validation signing](public/evidence/build-validation-sign.png)
+![Build confirm warning](public/evidence/build-confirm-warning.png)
+![Trading surface](public/evidence/trading-surface.png)
+![Workflow waiting for signature](public/evidence/workflow-waiting-signature.png)
+![Workflow invoice confirmed](public/evidence/workflow-invoice-confirmed.png)
+![Dashboard analytics](public/evidence/dashboard-analytics.png)
 
 ## API Surface
 
