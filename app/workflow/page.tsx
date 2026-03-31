@@ -284,7 +284,7 @@ async function waitForLedger(
       await horizonServer.transactions().transaction(txHash).call();
       return;
     } catch { /* not yet */ }
-    await new Promise((r) => setTimeout(r, 2_000));
+    await new Promise((r) => setTimeout(r, 2_000)); // poll every 2 s (Stellar ledger closes ~5 s)
   }
 }
 
@@ -358,7 +358,7 @@ function PaymentExecutorSection({ walletAddress }: { walletAddress: string }) {
       const horizonServer = new StellarSdk.Horizon.Server(horizonUrl);
 
       const senderAccount = await horizonServer.loadAccount(senderKey);
-      const memo = `agent:${selectedAgent.id}`.slice(0, 28);
+      const memo = `agent:${selectedAgent.id}`.slice(0, 28); // Stellar memo text limit is 28 bytes
 
       const tx = new StellarSdk.TransactionBuilder(senderAccount, {
         fee: StellarSdk.BASE_FEE,
@@ -405,7 +405,7 @@ function PaymentExecutorSection({ walletAddress }: { walletAddress: string }) {
       });
 
       const runData = await runRes.json().catch(() => ({}));
-      if (!runRes.ok && runRes.status !== 200) {
+      if (!runRes.ok) {
         // Payment succeeded; agent run had an issue — still show invoice
         console.warn('Agent run error:', runData);
       }
