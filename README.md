@@ -60,7 +60,6 @@ flowchart LR
 ### 1) Wallet Connect And Identity
 1. User opens the app and connects Freighter (or other supported wallet).
 2. Public key is stored locally for session-scoped UX and request signing context.
-
 ### 2) Agent Build + On-Chain Validation
 1. User configures agent metadata (name/model/prompt/price/visibility/tools).
 2. `POST /api/agents/validate-deploy` builds a Soroban validation transaction (XDR).
@@ -117,6 +116,7 @@ Client -> validate-deploy API -> sign tx -> confirm-deploy API
 ## Verified Transaction Evidence
 
 Primary proof transaction (fork payment):
+- My wallet address of freighter wallet : GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T
 - Tx ID: `0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541`
 - Explorer: https://stellar.expert/explorer/testnet/tx/0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541
 - Status: successful
