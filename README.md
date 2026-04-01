@@ -14,7 +14,20 @@ It combines:
 - Realtime pub/sub pipeline for events and analytics
 - Agent marketplace, fork economy, workflow executor, and trading surface
 
-Place the provided screenshots in this folder with the following names so README renders them automatically:
+## Verified Transaction Evidence
+
+Primary proof transaction (Tx / payment):
+- My freighter wallet address : GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T
+- Agent VALIDATOR ID= CAFDQPT6PUWS343TRAAX5O5PCKR5G5YPWBXUDP34NC745XJKAENI4GVY (Deployed On-chain)
+  Validation Fee: 5 XLM 
+- AgentRegistry CONTRACT ID= CA3W37NQUHMFYJJD3TW4B2DI5ABKH7M7BNAMQISB5VW3BCYNO2PC2MYY (Deployed On-chain)
+- Tx ID: `0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541`
+- Explorer: https://stellar.expert/explorer/testnet/tx/0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541
+- Status: successful
+- Memo observed: `fork:d211defa-57a7-4f41-b08d`
+- Amount observed: `0.1 XLM`
+- Fee charged: `0.00001 XLM`
+---
 
 1. fork-wallet-confirm.png
 <img width="1863" height="879" alt="Screenshot 2026-03-31 231647" src="https://github.com/user-attachments/assets/eaddf64a-7d4b-4a9a-92e1-f5a391256baa" />
@@ -144,19 +157,6 @@ Client -> validate-deploy API -> sign tx -> confirm-deploy API
 -> on-chain registration success
 ```
 
-## Verified Transaction Evidence
-
-Primary proof transaction (Tx / payment):
-- My wallet address of freighter wallet : GARN7A6OJKPR3HAPVIKM6GRUD7KMEHYQ76VJJCO4AAKQ6ETEKFQPQ24T
-- VALIDATOR_ID=CAFDQPT6PUWS343TRAAX5O5PCKR5G5YPWBXUDP34NC745XJKAENI4GVY
-- CONTRACT_ID=CA3W37NQUHMFYJJD3TW4B2DI5ABKH7M7BNAMQISB5VW3BCYNO2PC2MYY
-- Tx ID: `0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541`
-- Explorer: https://stellar.expert/explorer/testnet/tx/0367f4f328678305d283ed8fc7b71866df5f0523e7efa3ef00bb3abc2b77e541
-- Status: successful
-- Memo observed: `fork:d211defa-57a7-4f41-b08d`
-- Amount observed: `0.1 XLM`
-- Fee charged: `0.00001 XLM`
-
 ## Validation Screens (Important One-Liners)
 
 1. Freighter fork confirmation proves user-signed payment authorization before marketplace fork completes.
@@ -170,22 +170,6 @@ Primary proof transaction (Tx / payment):
 9. Workflow executor waiting state proves asynchronous task orchestration blocked on wallet payment signature.
 10. Workflow invoice panel provides structured proof payload: tx hash, payer, amount, timestamp, explorer link.
 11. Dashboard panels aggregate monetization telemetry and request analytics after protocol interactions.
-
-## Screenshot Evidence Gallery
-
-The project includes a structured evidence gallery in [public/evidence/README.md](public/evidence/README.md).
-
-![Fork wallet confirmation](public/evidence/fork-wallet-confirm.png)
-![Stellar explorer transaction proof](public/evidence/stellar-explorer-proof.png)
-![Marketplace fork success](public/evidence/marketplace-fork-success.png)
-![Run payment modal](public/evidence/run-payment-modal.png)
-![Run summary and live feed](public/evidence/run-summary-live-feed.png)
-![Build validation signing](public/evidence/build-validation-sign.png)
-![Build confirm warning](public/evidence/build-confirm-warning.png)
-![Trading surface](public/evidence/trading-surface.png)
-![Workflow waiting for signature](public/evidence/workflow-waiting-signature.png)
-![Workflow invoice confirmed](public/evidence/workflow-invoice-confirmed.png)
-![Dashboard analytics](public/evidence/dashboard-analytics.png)
 
 ## API Surface
 
