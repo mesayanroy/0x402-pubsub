@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Agent } from '@/types';
 import TerminalOutput from '@/components/TerminalOutput';
 import PaymentModal from '@/components/PaymentModal';
@@ -20,6 +20,7 @@ type RuntimeInfo = {
 
 export default function AgentDetailPage() {
   const { id } = useParams();
+  const router = useRouter();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -40,12 +41,18 @@ export default function AgentDetailPage() {
   const [lastBilledXlm, setLastBilledXlm] = useState<number>(0);
   const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
   const [paymentApproved, setPaymentApproved] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [viewerWallet, setViewerWallet] = useState<string>('');
 
   const agentId = Array.isArray(id) ? id[0] : id ?? '';
 
   // Real-time feed filtered to this agent's activity
   const { events: realtimeEvents, isConnected } = useMarketplaceFeed({ maxEvents: 5 });
   const agentEvents = realtimeEvents.filter((e) => e.agentId === agentId);
+
+  useEffect(() => {
+    setViewerWallet(localStorage.getItem('wallet_address') || '');
+  }, []);
 
   useEffect(() => {
     const fetchAgent = async () => {
@@ -109,6 +116,8 @@ export default function AgentDetailPage() {
         error?: string;
         details?: string;
         output?: string;
+        request_id?: string;
+        latency_ms?: number;
         billed_xlm?: number;
         runtime?: RuntimeInfo;
         payment_details?: {
@@ -139,10 +148,74 @@ export default function AgentDetailPage() {
       setOutput(String(data.output || ''));
       setLastBilledXlm(Number(data.billed_xlm || 0));
       setRuntimeInfo(data.runtime || null);
+
+      // Persist run timing locally so dashboard can reflect request timing instantly.
+      if (typeof window !== 'undefined' && data.request_id && typeof data.latency_ms === 'number') {
+        try {
+          const existing = JSON.parse(localStorage.getItem('agent_runtime_history') || '[]') as Array<{
+            requestId: string;
+            agentId: string;
+            latencyMs: number;
+            createdAt: string;
+          }>;
+          existing.unshift({
+            requestId: data.request_id,
+            agentId,
+            latencyMs: data.latency_ms,
+            createdAt: new Date().toISOString(),
+          });
+          localStorage.setItem('agent_runtime_history', JSON.stringify(existing.slice(0, 100)));
+          window.dispatchEvent(new CustomEvent('agent_run_success', {
+            detail: {
+              requestId: data.request_id,
+              agentId,
+              latencyMs: data.latency_ms,
+            },
+          }));
+        } catch {
+          // Ignore telemetry persistence failures.
+        }
+      }
     } catch (err) {
       setError(String(err));
     } finally {
       setRunning(false);
+    }
+  };
+
+  const removeAgent = async () => {
+    if (!agent || deleting) return;
+    const walletAddress = localStorage.getItem('wallet_address') || '';
+    if (!walletAddress) {
+      setError('Connect wallet first to remove this agent.');
+      return;
+    }
+    if (walletAddress !== agent.owner_wallet) {
+      setError('Only the owner wallet can remove this agent.');
+      return;
+    }
+
+    const ok = window.confirm(`Remove agent \"${agent.name}\" from active listings?`);
+    if (!ok) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to remove agent');
+      }
+      router.push('/dashboard');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -207,9 +280,20 @@ const data = await res.json();`;
               <h1 className="font-syne text-3xl md:text-4xl font-bold">{agent.name}</h1>
               <p className="text-white/65 mt-1 text-sm md:text-base max-w-2xl">{agent.description || 'AI agent execution console with 0x402 payment flow.'}</p>
             </div>
-            <div className="text-right">
-              <div className="text-[#FFB800] font-syne font-bold text-2xl md:text-3xl">{agent.price_xlm} XLM</div>
-              <div className="font-mono text-xs text-white/50">per request</div>
+            <div className="text-right space-y-2">
+              <div>
+                <div className="text-[#FFB800] font-syne font-bold text-2xl md:text-3xl">{agent.price_xlm} XLM</div>
+                <div className="font-mono text-xs text-white/50">per request</div>
+              </div>
+              {viewerWallet && viewerWallet === agent.owner_wallet && (
+                <button
+                  onClick={removeAgent}
+                  disabled={deleting}
+                  className="border border-red-700/70 text-red-300 px-3 py-1.5 rounded-lg text-xs font-mono hover:bg-red-500/10 disabled:opacity-50"
+                >
+                  {deleting ? 'Removing...' : 'Remove Agent'}
+                </button>
+              )}
             </div>
           </div>
 

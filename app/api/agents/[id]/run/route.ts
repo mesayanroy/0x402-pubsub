@@ -17,6 +17,16 @@ function isMissingAgentsTableError(error: { message?: string; code?: string } | 
     || error.code === 'PGRST205';
 }
 
+function isMissingColumnError(
+  error: { message?: string; code?: string } | null | undefined,
+  table: string,
+  column: string
+): boolean {
+  if (!error) return false;
+  const message = (error.message || '').toLowerCase();
+  return error.code === 'PGRST204' && message.includes(`'${column}'`) && message.includes(`'${table}'`);
+}
+
 const network = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet' ? 'public' : 'testnet';
 
 function explorerUrl(txHash: string): string {
@@ -49,9 +59,9 @@ async function runAgentModel(model: string, systemPrompt: string, userInput: str
     }
     try {
       const { runOpenAIAgent } = await import('@/lib/openai');
-      return runOpenAIAgent(systemPrompt, userInput);
+      return await runOpenAIAgent(systemPrompt, userInput);
     } catch (err) {
-      console.error('[run] OpenAI model error:', err);
+      console.warn('[run] OpenAI model error:', err instanceof Error ? err.message : String(err));
       return `[AI Error] The agent model returned an error: ${String(err)}. Payment was processed successfully.`;
     }
   }
@@ -61,9 +71,9 @@ async function runAgentModel(model: string, systemPrompt: string, userInput: str
     }
     try {
       const { runAnthropicAgent } = await import('@/lib/anthropic');
-      return runAnthropicAgent(systemPrompt, userInput);
+      return await runAnthropicAgent(systemPrompt, userInput);
     } catch (err) {
-      console.error('[run] Anthropic model error:', err);
+      console.warn('[run] Anthropic model error:', err instanceof Error ? err.message : String(err));
       return `[AI Error] The agent model returned an error: ${String(err)}. Payment was processed successfully.`;
     }
   }
@@ -76,7 +86,7 @@ async function verifyPayment(
   priceXlm: number,
   agentId: string,
   callerWallet?: string
-): Promise<boolean> {
+): Promise<{ valid: boolean; error?: string }> {
   try {
     const { verifyPaymentTransaction } = await import('@/lib/stellar');
     const expectedMemoPrefix = `agent:${agentId}`.slice(0, 28);
@@ -87,9 +97,12 @@ async function verifyPayment(
       expectedMemoPrefix,
       callerWallet
     );
-    return result.valid;
-  } catch {
-    return false;
+    return result;
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Payment verification exception: ${String(err)}`,
+    };
   }
 }
 
@@ -123,6 +136,16 @@ export async function POST(
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
+    if (!agent.owner_wallet || typeof agent.owner_wallet !== 'string') {
+      return NextResponse.json(
+        { error: 'Agent owner wallet is not configured' },
+        { status: 500 }
+      );
+    }
+    const priceXlm = Number(agent.price_xlm || 0);
+    if (Number.isNaN(priceXlm) || priceXlm < 0) {
+      return NextResponse.json({ error: 'Agent pricing configuration is invalid' }, { status: 500 });
+    }
     if (!agent.is_active) {
       return NextResponse.json({ error: 'Agent is not active' }, { status: 403 });
     }
@@ -145,7 +168,7 @@ export async function POST(
     const paymentTxHash = req.headers.get('X-Payment-Tx-Hash');
     const callerWallet = req.headers.get('X-Payment-Wallet') || '';
 
-    if (agent.price_xlm > 0 && !paymentTxHash) {
+    if (priceXlm > 0 && !paymentTxHash) {
       // Issue 402 payment challenge
       const requestNonce = Math.random().toString(36).slice(2, 10);
       // Memo is capped at 28 bytes to match Stellar's limit (same cap applied in PaymentModal)
@@ -180,18 +203,25 @@ export async function POST(
       ? body.customization.prompt
       : agent.system_prompt;
 
-    if (paymentTxHash && agent.price_xlm > 0) {
+    if (paymentTxHash && priceXlm > 0) {
       // Verify paid request inline so API callers get immediate completion even
       // when background consumers are not running.
-      const paymentVerified = await verifyPayment(
+      const paymentVerification = await verifyPayment(
         paymentTxHash,
         agent.owner_wallet,
-        agent.price_xlm,
+        priceXlm,
         agentId,
         callerWallet || undefined
       );
-      if (!paymentVerified) {
-        return NextResponse.json({ error: 'Payment verification failed' }, { status: 402 });
+      if (!paymentVerification.valid) {
+        console.warn('[run] Payment verification failed:', paymentVerification.error || 'unknown reason');
+        return NextResponse.json(
+          {
+            error: 'Payment verification failed',
+            details: paymentVerification.error || null,
+          },
+          { status: 402 }
+        );
       }
     }
 
@@ -204,7 +234,7 @@ export async function POST(
       try {
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-        const insertRes = await supabase.from('agent_requests').insert({
+        const baseRequestPayload = {
           id: requestId,
           agent_id: agentId,
           caller_wallet: callerWallet || null,
@@ -213,13 +243,24 @@ export async function POST(
             input,
             customization: body.customization || null,
           },
-          output_payload: { output },
           payment_tx_hash: paymentTxHash,
           tx_explorer_url: paymentTxHash ? explorerUrl(paymentTxHash) : null,
-          payment_amount_xlm: paymentTxHash ? agent.price_xlm : 0,
+          payment_amount_xlm: paymentTxHash ? priceXlm : 0,
           status: 'success',
           latency_ms: latencyMs,
+        };
+
+        let insertRes = await supabase.from('agent_requests').insert({
+          ...baseRequestPayload,
+          output_payload: { output },
         });
+
+        if (isMissingColumnError(insertRes.error, 'agent_requests', 'output_payload')) {
+          insertRes = await supabase.from('agent_requests').insert({
+            ...baseRequestPayload,
+            output_response: { output },
+          });
+        }
 
         if (insertRes.error && !isMissingAgentsTableError(insertRes.error)) {
           console.warn('[run] DB insert error:', insertRes.error);
@@ -233,7 +274,7 @@ export async function POST(
               agent_id: agentId,
               owner_wallet: agent.owner_wallet,
               caller_wallet: callerWallet || null,
-              amount_xlm: agent.price_xlm,
+              amount_xlm: priceXlm,
               tx_hash: paymentTxHash,
               tx_explorer_url: txExplorerUrl,
             },
@@ -252,7 +293,7 @@ export async function POST(
           .update({
             total_requests: totalRequests + 1,
             total_earned_xlm: paymentTxHash
-              ? totalEarned + Number(agent.price_xlm || 0)
+              ? totalEarned + priceXlm
               : totalEarned,
             updated_at: new Date().toISOString(),
           })
@@ -281,7 +322,7 @@ export async function POST(
       agentName: agent.name,
       callerWallet: callerWallet || undefined,
       ownerWallet: agent.owner_wallet,
-      priceXlm: paymentTxHash ? agent.price_xlm : 0,
+      priceXlm: paymentTxHash ? priceXlm : 0,
       txHash: paymentTxHash || undefined,
       txExplorerUrl: paymentTxHash ? explorerUrl(paymentTxHash) : undefined,
       timestamp: new Date().toISOString(),
@@ -295,7 +336,7 @@ export async function POST(
       latency_ms: latencyMs,
       tx_hash: paymentTxHash || null,
       tx_explorer_url: paymentTxHash ? explorerUrl(paymentTxHash) : null,
-      billed_xlm: paymentTxHash ? Number(agent.price_xlm || 0) : 0,
+      billed_xlm: paymentTxHash ? priceXlm : 0,
       runtime: {
         agent_id: agentId,
         owner_wallet: agent.owner_wallet,

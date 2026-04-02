@@ -1,7 +1,12 @@
 import OpenAI from 'openai';
 
+function getApiKey(): string {
+  const raw = process.env.OPENAI_API_KEY || '';
+  return raw.trim().replace(/^['\"]|['\"]$/g, '');
+}
+
 const openaiClient = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
+  apiKey: getApiKey(),
 });
 
 export async function runOpenAIAgent(systemPrompt: string, userInput: string): Promise<string> {

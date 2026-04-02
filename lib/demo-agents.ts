@@ -128,3 +128,14 @@ export function incrementDemoAgentStats(id: string, opts: { paid: boolean; amoun
   demoAgents.set(id, found);
   persistAgents(demoAgents);
 }
+
+export function deactivateDemoAgent(id: string, ownerWallet: string): { ok: boolean; reason?: string } {
+  const found = demoAgents.get(id);
+  if (!found) return { ok: false, reason: 'not_found' };
+  if (found.owner_wallet !== ownerWallet) return { ok: false, reason: 'forbidden' };
+  found.is_active = false;
+  found.updated_at = nowIso();
+  demoAgents.set(id, found);
+  persistAgents(demoAgents);
+  return { ok: true };
+}

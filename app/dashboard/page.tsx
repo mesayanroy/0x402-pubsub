@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import {
@@ -72,10 +72,37 @@ function modelName(model: string): string {
 
 const PIE_COLORS = ['#00FFE5', '#FFB800', '#4ade80', '#f87171', '#a78bfa'];
 
+type DashboardRequestRow = {
+  id: string;
+  agent_id: string;
+  status: 'success' | 'failed' | 'pending' | string;
+  latency_ms: number | null;
+  created_at: string;
+};
+
+type LocalTradingRow = {
+  pnl: number;
+  pair: string;
+  ts: string;
+  type: string;
+  closePrice: number;
+};
+
+type LocalRuntimeRow = {
+  requestId: string;
+  agentId: string;
+  latencyMs: number;
+  createdAt: string;
+};
+
 export default function DashboardPage() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [myAgents, setMyAgents] = useState<Agent[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [requestRows, setRequestRows] = useState<DashboardRequestRow[]>([]);
+  const [localTrades, setLocalTrades] = useState<LocalTradingRow[]>([]);
+  const [localRuntimeRows, setLocalRuntimeRows] = useState<LocalRuntimeRow[]>([]);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [xlmPrice, setXlmPrice] = useState<number | null>(null);
 
@@ -84,33 +111,55 @@ export default function DashboardPage() {
   const myAgentIds = new Set(myAgents.map((a) => a.id));
   const myLiveEvents = liveEvents.filter((e) => myAgentIds.has(e.agentId));
 
+  const hydrateLocalTrading = () => {
+    try {
+      const rows = JSON.parse(localStorage.getItem('trading_pnl_history') || '[]') as LocalTradingRow[];
+      setLocalTrades(Array.isArray(rows) ? rows.slice(0, 100) : []);
+    } catch {
+      setLocalTrades([]);
+    }
+  };
+
+  const hydrateLocalRuns = () => {
+    try {
+      const rows = JSON.parse(localStorage.getItem('agent_runtime_history') || '[]') as LocalRuntimeRow[];
+      setLocalRuntimeRows(Array.isArray(rows) ? rows.slice(0, 100) : []);
+    } catch {
+      setLocalRuntimeRows([]);
+    }
+  };
+
+  const fetchAll = useCallback(async (owner: string) => {
+    setLoading(true);
+    try {
+      const [agentsRes, analyticsRes, requestsRes] = await Promise.all([
+        fetch(`/api/agents/list?owner=${encodeURIComponent(owner)}`),
+        fetch(`/api/dashboard/analytics?owner=${encodeURIComponent(owner)}&hours=24`),
+        fetch(`/api/dashboard/requests?owner=${encodeURIComponent(owner)}&limit=100`),
+      ]);
+      const agentsData = agentsRes.ok ? await agentsRes.json() : { agents: [] };
+      const analyticsData = analyticsRes.ok ? await analyticsRes.json() : EMPTY_ANALYTICS;
+      const requestsData = requestsRes.ok ? await requestsRes.json() : { requests: [] };
+      setMyAgents((agentsData as { agents: Agent[] }).agents || []);
+      setAnalytics({
+        ...EMPTY_ANALYTICS,
+        ...(analyticsData || {}),
+        totals: { ...EMPTY_ANALYTICS.totals, ...((analyticsData as AnalyticsResponse)?.totals || {}) },
+      });
+      setRequestRows(((requestsData as { requests?: DashboardRequestRow[] }).requests || []).slice(0, 100));
+    } catch {
+      setMyAgents([]);
+      setAnalytics(EMPTY_ANALYTICS);
+      setRequestRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
     if (!addr) return;
     setWalletAddress(addr);
-
-    const fetchAll = async () => {
-      setLoading(true);
-      try {
-        const [agentsRes, analyticsRes] = await Promise.all([
-          fetch(`/api/agents/list?owner=${encodeURIComponent(addr)}`),
-          fetch(`/api/dashboard/analytics?owner=${encodeURIComponent(addr)}&hours=24`),
-        ]);
-        const agentsData = agentsRes.ok ? await agentsRes.json() : { agents: [] };
-        const analyticsData = analyticsRes.ok ? await analyticsRes.json() : EMPTY_ANALYTICS;
-        setMyAgents((agentsData as { agents: Agent[] }).agents || []);
-        setAnalytics({
-          ...EMPTY_ANALYTICS,
-          ...(analyticsData || {}),
-          totals: { ...EMPTY_ANALYTICS.totals, ...((analyticsData as AnalyticsResponse)?.totals || {}) },
-        });
-      } catch {
-        setMyAgents([]);
-        setAnalytics(EMPTY_ANALYTICS);
-      } finally {
-        setLoading(false);
-      }
-    };
 
     // Fetch XLM price for USD conversion
     const fetchXlmPrice = async () => {
@@ -123,11 +172,59 @@ export default function DashboardPage() {
       } catch { /* ignore */ }
     };
 
-    void fetchAll();
+    void fetchAll(addr);
     void fetchXlmPrice();
-    const interval = setInterval(fetchAll, 10_000);
-    return () => clearInterval(interval);
-  }, []);
+    hydrateLocalTrading();
+    hydrateLocalRuns();
+
+    const onTradingPnl = () => hydrateLocalTrading();
+    const onAgentRun = () => {
+      hydrateLocalRuns();
+      void fetchAll(addr);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'trading_pnl_history') hydrateLocalTrading();
+      if (event.key === 'agent_runtime_history') hydrateLocalRuns();
+    };
+
+    window.addEventListener('trading_pnl_update', onTradingPnl as EventListener);
+    window.addEventListener('agent_run_success', onAgentRun as EventListener);
+    window.addEventListener('storage', onStorage);
+
+    const interval = setInterval(() => void fetchAll(addr), 10_000);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('trading_pnl_update', onTradingPnl as EventListener);
+      window.removeEventListener('agent_run_success', onAgentRun as EventListener);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [fetchAll]);
+
+  const removeAgent = async (agent: Agent) => {
+    if (!walletAddress || deletingAgentId) return;
+    if (walletAddress !== agent.owner_wallet) return;
+
+    const ok = window.confirm(`Remove agent \"${agent.name}\" from active listings?`);
+    if (!ok) return;
+
+    setDeletingAgentId(agent.id);
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || 'Failed to remove agent');
+      }
+      setMyAgents((prev) => prev.filter((a) => a.id !== agent.id));
+    } catch (err) {
+      console.error('[dashboard] remove agent error:', err);
+    } finally {
+      setDeletingAgentId(null);
+    }
+  };
 
   if (!walletAddress) {
     return (
@@ -151,6 +248,43 @@ export default function DashboardPage() {
   const totalEarned = analytics?.totals?.totalEarnedXlm ?? 0;
   const totalEarnedUsd = xlmPrice ? totalEarned * xlmPrice : null;
 
+  const tradingPnlTotal = localTrades.reduce((sum, row) => sum + Number(row.pnl || 0), 0);
+  const winningTrades = localTrades.filter((row) => Number(row.pnl || 0) > 0).length;
+  const losingTrades = localTrades.filter((row) => Number(row.pnl || 0) < 0).length;
+  const totalClosedTrades = winningTrades + losingTrades;
+  const winRate = totalClosedTrades > 0 ? (winningTrades / totalClosedTrades) * 100 : 0;
+  const traderScore = Math.max(0, Math.round(50 + (winRate * 0.5) + (tradingPnlTotal * 8)));
+
+  const runtimeRows = requestRows
+    .filter((row) => typeof row.latency_ms === 'number')
+    .map((row) => ({
+      id: row.id,
+      agentId: row.agent_id,
+      latencyMs: Number(row.latency_ms || 0),
+      createdAt: row.created_at,
+      source: 'remote' as const,
+    }));
+
+  const localTimingRows = localRuntimeRows.map((row) => ({
+    id: row.requestId,
+    agentId: row.agentId,
+    latencyMs: Number(row.latencyMs || 0),
+    createdAt: row.createdAt,
+    source: 'local' as const,
+  }));
+
+  const requestTimeBreakdown = [...runtimeRows, ...localTimingRows]
+    .filter((row, index, arr) => arr.findIndex((x) => x.id === row.id) === index)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 30);
+
+  const timingDistribution = [
+    { label: '< 1s', value: requestTimeBreakdown.filter((r) => r.latencyMs < 1000).length },
+    { label: '1-3s', value: requestTimeBreakdown.filter((r) => r.latencyMs >= 1000 && r.latencyMs < 3000).length },
+    { label: '3-10s', value: requestTimeBreakdown.filter((r) => r.latencyMs >= 3000 && r.latencyMs < 10000).length },
+    { label: '> 10s', value: requestTimeBreakdown.filter((r) => r.latencyMs >= 10000).length },
+  ];
+
   const freeRequests = (analytics?.totals?.requests ?? 0) - (analytics?.totals?.paidRequests ?? 0);
   const paidRequests = analytics?.totals?.paidRequests ?? 0;
 
@@ -159,12 +293,23 @@ export default function DashboardPage() {
     { name: 'Free Requests', value: freeRequests },
   ].filter((d) => d.value > 0);
 
-  // Compute cumulative PnL from earnings data
+  // Compute cumulative PnL from both agent earnings and local trading outcomes.
+  const dailyPnlMap = new Map<string, number>();
+  for (const row of analytics?.earnings ?? []) {
+    dailyPnlMap.set(row.date, (dailyPnlMap.get(row.date) || 0) + Number(row.amount || 0));
+  }
+  for (const trade of localTrades) {
+    const day = new Date(trade.ts).toISOString().slice(0, 10);
+    dailyPnlMap.set(day, (dailyPnlMap.get(day) || 0) + Number(trade.pnl || 0));
+  }
   let cumulative = 0;
-  const pnlData = (analytics?.earnings ?? []).map((e) => {
-    cumulative += e.amount;
-    return { date: e.date, daily: e.amount, cumulative };
-  });
+  const pnlData = Array.from(dailyPnlMap.entries())
+    .map(([date, amount]) => ({ date, amount }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((row) => {
+      cumulative += row.amount;
+      return { date: row.date, daily: row.amount, cumulative };
+    });
 
   const statCards = [
     { label: 'My Agents', value: String(myAgents.length), unit: '', color: 'text-[#00FFE5]' },
@@ -177,6 +322,7 @@ export default function DashboardPage() {
     },
     { label: 'Total Requests', value: (analytics?.totals?.requests ?? 0).toLocaleString(), unit: '', color: 'text-[#4ade80]' },
     { label: 'Avg Latency', value: String(analytics?.totals?.avgLatencyMs ?? 0), unit: 'ms', color: 'text-purple-400' },
+    { label: 'Trader Score', value: String(traderScore), unit: '', color: 'text-[#00FFE5]' },
   ];
 
   return (
@@ -191,7 +337,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {statCards.map((stat) => (
               <div key={stat.label} className="p-5 rounded-xl border border-[rgba(0,255,229,0.1)] bg-[rgba(255,255,255,0.02)]">
                 <div className={`font-syne text-2xl font-bold ${stat.color}`}>
@@ -260,7 +406,7 @@ export default function DashboardPage() {
             <div className="p-5 rounded-2xl border border-[rgba(74,222,128,0.1)] bg-[rgba(74,222,128,0.02)]">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-syne text-lg font-bold text-white">Cumulative PnL (XLM)</h3>
-                <span className="font-mono text-[10px] text-gray-500">daily earnings</span>
+                <span className="font-mono text-[10px] text-gray-500">agents + trading outcomes</span>
               </div>
               <div className="h-64">
                 {pnlData.length === 0 ? (
@@ -334,6 +480,54 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          <div className="p-5 rounded-2xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)]">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-syne text-lg font-bold text-white">Request Time Breakdown</h3>
+              <span className="font-mono text-[10px] text-gray-500">successful agent runs</span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              {timingDistribution.map((bucket) => (
+                <div key={bucket.label} className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-3 text-center">
+                  <div className="font-syne text-xl text-[#00FFE5]">{bucket.value}</div>
+                  <div className="font-mono text-[10px] text-gray-500 mt-0.5">{bucket.label}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px]">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    {['Request', 'Agent', 'Latency', 'Source', 'Time'].map((h) => (
+                      <th key={h} className="py-2 pr-4 text-left font-mono text-[10px] text-gray-500 uppercase">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {requestTimeBreakdown.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center font-mono text-xs text-white/30">
+                        No successful runs yet.
+                      </td>
+                    </tr>
+                  )}
+                  {requestTimeBreakdown.map((row) => (
+                    <tr key={`${row.source}-${row.id}`} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                      <td className="py-2.5 pr-4 font-mono text-xs text-gray-400">{row.id.slice(0, 12)}...</td>
+                      <td className="py-2.5 pr-4 font-mono text-xs text-white">{row.agentId.slice(0, 8)}...</td>
+                      <td className="py-2.5 pr-4 font-mono text-xs text-[#4ade80]">{Math.round(row.latencyMs)} ms</td>
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-[#FFB800]">{row.source}</td>
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-white/40">
+                        {new Date(row.createdAt).toLocaleTimeString([], { hour12: false })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Traders Portfolio */}
           <div className="p-5 rounded-2xl border border-[rgba(0,255,229,0.1)] bg-[rgba(0,255,229,0.02)]">
             <div className="flex items-center justify-between mb-4">
@@ -350,19 +544,18 @@ export default function DashboardPage() {
             {/* Portfolio summary row */}
             <div className="grid grid-cols-3 gap-3 mb-5">
               <div className="rounded-xl border border-[rgba(74,222,128,0.2)] bg-[rgba(74,222,128,0.04)] p-3 text-center">
-                <div className="font-syne text-xl font-bold text-[#4ade80]">+{totalEarned.toFixed(4)}</div>
-                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Total Profit (XLM)</div>
-                {totalEarnedUsd && <div className="font-mono text-[10px] text-[#4ade80]/70">≈ ${totalEarnedUsd.toFixed(2)}</div>}
-              </div>
-              <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-3 text-center">
-                <div className="font-syne text-xl font-bold text-[#FFB800]">{paidRequests}</div>
-                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Paid Trades</div>
-              </div>
-              <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-3 text-center">
-                <div className="font-syne text-xl font-bold text-purple-400">
-                  {paidRequests > 0 ? (totalEarned / paidRequests).toFixed(4) : '0.0000'}
+                <div className={`font-syne text-xl font-bold ${tradingPnlTotal >= 0 ? 'text-[#4ade80]' : 'text-red-400'}`}>
+                  {tradingPnlTotal >= 0 ? '+' : ''}{tradingPnlTotal.toFixed(4)}
                 </div>
-                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Avg per Trade (XLM)</div>
+                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Trading PnL (XLM)</div>
+              </div>
+              <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-3 text-center">
+                <div className="font-syne text-xl font-bold text-[#FFB800]">{totalClosedTrades}</div>
+                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Closed Trades</div>
+              </div>
+              <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] p-3 text-center">
+                <div className="font-syne text-xl font-bold text-purple-400">{traderScore}</div>
+                <div className="font-mono text-[10px] text-gray-500 mt-0.5">Trader Score</div>
               </div>
             </div>
 
@@ -377,10 +570,10 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(analytics?.invoices || []).length === 0 && (
+                  {(analytics?.invoices || []).length === 0 && localTrades.length === 0 && (
                     <tr>
                       <td colSpan={6} className="py-6 text-center font-mono text-xs text-white/30">
-                        No trades yet — run a paid agent request to populate the portfolio.
+                        No trades yet — close a position in Trading to populate this table.
                       </td>
                     </tr>
                   )}
@@ -415,6 +608,29 @@ export default function DashboardPage() {
                       </td>
                       <td className="py-2.5 pr-4 font-mono text-[10px] text-white/40">
                         {new Date(row.createdAt).toLocaleTimeString([], { hour12: false })}
+                      </td>
+                    </tr>
+                  ))}
+                  {localTrades.map((row, idx) => (
+                    <tr key={`trade-${row.ts}-${idx}`} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-gray-600">T{idx + 1}</td>
+                      <td className="py-2.5 pr-4">
+                        <div className="font-mono text-xs text-white">{row.pair.toUpperCase()}</div>
+                        <div className="font-mono text-[9px] text-gray-600 mt-0.5">{row.type.toUpperCase()} close</div>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono border border-[rgba(0,255,229,0.3)] text-[#00FFE5] bg-[rgba(0,255,229,0.06)]">
+                          Trading
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <span className={`font-mono text-xs font-bold ${row.pnl >= 0 ? 'text-[#4ade80]' : 'text-red-400'}`}>
+                          {row.pnl >= 0 ? '+' : ''}{row.pnl.toFixed(4)}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-[#FFB800]">@ {row.closePrice.toFixed(4)}</td>
+                      <td className="py-2.5 pr-4 font-mono text-[10px] text-white/40">
+                        {new Date(row.ts).toLocaleTimeString([], { hour12: false })}
                       </td>
                     </tr>
                   ))}
@@ -546,9 +762,9 @@ export default function DashboardPage() {
                 <p className="font-mono text-sm text-gray-500">No agents deployed yet. <Link href="/build" className="text-[#00FFE5] underline">Build your first agent →</Link></p>
               )}
               {myAgents.map((agent) => (
-                <Link key={agent.id} href={`/agents/${agent.id}`} className="flex items-center justify-between p-4 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:border-[rgba(0,255,229,0.15)] transition-all group block">
+                <div key={agent.id} className="flex items-center justify-between p-4 rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] hover:border-[rgba(0,255,229,0.15)] transition-all group">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <Link href={`/agents/${agent.id}`} className="flex items-center gap-2">
                       <div className="font-syne font-bold text-white group-hover:text-[#00FFE5] transition-colors">{agent.name}</div>
                       {agent.forked_from && (
                         <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-purple-800 bg-purple-900/20 text-purple-400">forked</span>
@@ -556,7 +772,7 @@ export default function DashboardPage() {
                       {agent.visibility === 'public' && !agent.forked_from && (
                         <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border border-[rgba(0,255,229,0.3)] bg-[rgba(0,255,229,0.06)] text-[#00FFE5]">marketplace</span>
                       )}
-                    </div>
+                    </Link>
                     <div className="font-mono text-xs text-gray-500 mt-0.5">
                       {agent.model === 'openai-gpt4o-mini' ? 'GPT-4o Mini' : 'Claude Haiku'} · {agent.price_xlm} XLM/req · {agent.visibility}
                     </div>
@@ -568,8 +784,15 @@ export default function DashboardPage() {
                     <div className="font-mono text-sm text-[#FFB800]">{(agent.total_earned_xlm ?? 0).toFixed(4)} XLM</div>
                     {xlmPrice && <div className="font-mono text-xs text-gray-500">≈ ${((agent.total_earned_xlm ?? 0) * xlmPrice).toFixed(2)}</div>}
                     <div className="font-mono text-xs text-gray-500">{(agent.total_requests ?? 0).toLocaleString()} requests</div>
+                    <button
+                      onClick={() => removeAgent(agent)}
+                      disabled={deletingAgentId === agent.id}
+                      className="mt-2 px-2.5 py-1 text-[10px] font-mono rounded border border-red-700/70 text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+                    >
+                      {deletingAgentId === agent.id ? 'Removing...' : 'Remove'}
+                    </button>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           </div>

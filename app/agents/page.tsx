@@ -7,10 +7,16 @@ import { Agent } from '@/types';
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [walletAddress, setWalletAddress] = useState<string>('');
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState<string>('all');
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [removingAgentId, setRemovingAgentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWalletAddress(localStorage.getItem('wallet_address') || '');
+  }, []);
 
   useEffect(() => {
     const fetchAgents = async () => {
@@ -44,6 +50,30 @@ export default function AgentsPage() {
     const matchModel = modelFilter === 'all' || a.model === modelFilter;
     return matchSearch && matchModel;
   });
+
+  const removeAgent = async (agent: Agent) => {
+    if (!walletAddress || walletAddress !== agent.owner_wallet || removingAgentId) return;
+    const ok = window.confirm(`Remove agent \"${agent.name}\" from active listings?`);
+    if (!ok) return;
+
+    setRemovingAgentId(agent.id);
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to remove agent');
+      }
+      setAgents((prev) => prev.filter((a) => a.id !== agent.id));
+    } catch (err) {
+      setApiError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRemovingAgentId(null);
+    }
+  };
 
   return (
     <div className="min-h-screen">
@@ -95,7 +125,18 @@ export default function AgentsPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {filtered.map((agent) => (
-                <AgentCard key={agent.id} agent={agent} />
+                <div key={agent.id} className="space-y-2">
+                  <AgentCard agent={agent} />
+                  {walletAddress && walletAddress === agent.owner_wallet && (
+                    <button
+                      onClick={() => removeAgent(agent)}
+                      disabled={removingAgentId === agent.id}
+                      className="w-full py-1.5 text-xs font-mono border border-red-700/70 text-red-300 rounded hover:bg-red-500/10 disabled:opacity-50"
+                    >
+                      {removingAgentId === agent.id ? 'Removing...' : 'Remove Agent'}
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}

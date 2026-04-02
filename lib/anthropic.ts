@@ -1,7 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+function getApiKey(): string {
+  const raw = process.env.ANTHROPIC_API_KEY || '';
+  return raw.trim().replace(/^['\"]|['\"]$/g, '');
+}
+
 const anthropicClient = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || '',
+  apiKey: getApiKey(),
 });
 
 export async function runAnthropicAgent(systemPrompt: string, userInput: string): Promise<string> {

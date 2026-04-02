@@ -69,6 +69,11 @@ function topicToSlug(topic: Topic): string {
   return topic.replace(/\./g, '-');
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
 // ─── Publisher ────────────────────────────────────────────────────────────────
 
 /**
@@ -85,6 +90,16 @@ export async function publish<T>(topic: Topic, payload: T): Promise<void> {
 
   const slug = topicToSlug(topic);
   const destination = `${appUrl}/api/consumers/${slug}`;
+
+  try {
+    const url = new URL(destination);
+    if (isLoopbackHost(url.hostname)) {
+      console.info(`[QStash] Skipping publish for topic "${topic}" in local loopback env (${url.hostname}).`);
+      return;
+    }
+  } catch {
+    // If URL parsing fails, allow client.publishJSON to surface a proper error.
+  }
 
   try {
     const client = getQStashClient();
