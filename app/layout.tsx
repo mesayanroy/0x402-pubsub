@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import AppShell from "@/components/AppShell";
+import AblyNotifications from "@/components/AblyNotifications";
 
 export const metadata: Metadata = {
   title: "AgentForge — AI Agent Marketplace on Stellar",
@@ -25,7 +26,9 @@ export default function RootLayout({
         <main className="pt-16">
           <AppShell>{children}</AppShell>
         </main>
+        <AblyNotifications />
       </body>
     </html>
   );
 }
+

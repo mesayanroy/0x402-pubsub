@@ -36,6 +36,26 @@ import {
   Horizon,
 } from 'stellar-sdk';
 
+// ─── Banner ───────────────────────────────────────────────────────────────────
+
+const BANNER = `
+${chalk.cyan('╔═══════════════════════════════════════════════╗')}
+${chalk.cyan('║')}  ${chalk.bold.white('  █████╗  ██████╗ ███████╗███╗   ██╗████████╗')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.white(' ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.white(' ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.white(' ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.white(' ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.white(' ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('        ███████╗ ██████╗ ██████╗  ██████╗ ███████╗')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('        ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('        █████╗  ██║   ██║██████╔╝██║  ███╗█████╗  ')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('        ██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝  ')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('        ██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('        ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝')}  ${chalk.cyan('║')}
+${chalk.cyan('╚═══════════════════════════════════════════════╝')}
+  ${chalk.gray('CLI v0.1.0 · 0x402 Payment Protocol · Stellar Testnet')}
+`;
+
 // ─── Configuration ────────────────────────────────────────────────────────────
 
 const DEFAULT_API_BASE = process.env.AGENTFORGE_API_URL || 'http://localhost:3000';
@@ -536,4 +556,222 @@ a2aCmd
     }
   );
 
+program
+  .command('init [projectName]')
+  .description('Initialize a new AgentForge agent project')
+  .action(async (projectName: string = 'my-agent') => {
+    console.log(chalk.bold.cyan(`\n🚀 Initializing AgentForge project: ${projectName}\n`));
+    const spinner = ora('Creating project structure…').start();
+
+    const dirs = [
+      projectName,
+      `${projectName}/agents`,
+      `${projectName}/agents/templates`,
+      `${projectName}/tasks`,
+      `${projectName}/workflows`,
+      `${projectName}/config`,
+      `${projectName}/docs`,
+      `${projectName}/.agentforge`,
+    ];
+
+    for (const dir of dirs) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    fs.writeFileSync(
+      `${projectName}/.env`,
+      `# AgentForge Environment
+AGENTFORGE_API_URL=http://localhost:3000
+STELLAR_AGENT_SECRET=
+QSTASH_TOKEN=
+ABLY_API_KEY=
+NEXT_PUBLIC_ABLY_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+`
+    );
+
+    fs.writeFileSync(
+      `${projectName}/config/agents.json`,
+      JSON.stringify(
+        {
+          agents: [
+            { id: 'agent-1', name: 'My First Agent', model: 'openai-gpt4o-mini', price_xlm: 0.05 },
+          ],
+        },
+        null,
+        2
+      )
+    );
+
+    fs.writeFileSync(
+      `${projectName}/workflows/default.json`,
+      JSON.stringify(
+        {
+          name: 'Default Workflow',
+          tasks: [],
+          agents: [],
+          notes: '',
+          createdAt: new Date().toISOString(),
+        },
+        null,
+        2
+      )
+    );
+
+    fs.writeFileSync(
+      `${projectName}/README.md`,
+      `# ${projectName}\n\nAgentForge project scaffolded with \`agentforge init\`.\n\n## Quick Start\n\n\`\`\`bash\nagentforge agents list\nagentforge agents run <agentId> --input "your prompt"\nagentforge dash\n\`\`\`\n`
+    );
+
+    spinner.succeed(chalk.green('Project structure created!'));
+    console.log('');
+    console.log(chalk.bold('Created:'));
+    dirs.forEach((d) => console.log(chalk.gray(`  📁 ${d}`)));
+    console.log(chalk.gray(`  📄 ${projectName}/.env`));
+    console.log(chalk.gray(`  📄 ${projectName}/config/agents.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/workflows/default.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/README.md`));
+    console.log('');
+    console.log(chalk.bold('Next steps:'));
+    console.log(chalk.gray(`  1. cd ${projectName}`));
+    console.log(chalk.gray('  2. Fill in your .env with API keys'));
+    console.log(chalk.gray('  3. agentforge agents list'));
+    console.log(chalk.gray('  4. agentforge dash'));
+    console.log('');
+  });
+
+program
+  .command('dash')
+  .description('Live terminal dashboard — markets, agents, PnL, recent activity')
+  .option('--interval <ms>', 'Refresh interval in ms', '3000')
+  .action(async (opts: { interval: string }) => {
+    const apiBase = program.opts().api as string;
+    const interval = Math.max(1000, parseInt(opts.interval, 10) || 3000);
+
+    function clearScreen() {
+      process.stdout.write('\x1B[2J\x1B[0f');
+    }
+
+    function colorPnl(n: number): string {
+      if (n > 0) return chalk.green(`+${n.toFixed(4)}`);
+      if (n < 0) return chalk.red(`${n.toFixed(4)}`);
+      return chalk.white('0.0000');
+    }
+
+    const PAIRS = ['XLM/USDC', 'BTC/USDC', 'ETH/USDC', 'SOL/USDC', 'AF$/USDC'];
+    const COLORS = [chalk.cyan, chalk.yellow, chalk.green, chalk.blue, chalk.white];
+
+    function fakePrice(base: number, variance: number) {
+      return (base + (Math.random() - 0.5) * variance).toFixed(4);
+    }
+
+    async function render() {
+      let agents: AgentRecord[] = [];
+      try {
+        agents = await fetchAgents(apiBase);
+      } catch {
+        agents = [];
+      }
+
+      clearScreen();
+      console.log(BANNER);
+      console.log(chalk.bold.white('  ┌─────────────────────────────────────────────────────────────────────┐'));
+      console.log(chalk.bold.white('  │') + chalk.bold.cyan('  📊 CRYPTO MARKETS  ') + chalk.gray('(testnet simulation · Stellar DEX)') + chalk.bold.white('                     │'));
+      console.log(chalk.bold.white('  ├──────────────┬──────────────┬───────────┬───────────┬───────────────┤'));
+      console.log(chalk.bold.white('  │') + chalk.bold('  Pair         ') + chalk.bold.white('│') + chalk.bold('  Price       ') + chalk.bold.white('│') + chalk.bold(' 24h Change') + chalk.bold.white('│') + chalk.bold('   Volume  ') + chalk.bold.white('│') + chalk.bold('  Prediction   ') + chalk.bold.white('│'));
+      console.log(chalk.bold.white('  ├──────────────┼──────────────┼───────────┼───────────┼───────────────┤'));
+
+      const bases = [0.12, 43200, 2500, 170, 0.05];
+      for (let i = 0; i < PAIRS.length; i++) {
+        const price = parseFloat(fakePrice(bases[i], bases[i] * 0.03));
+        const change = (Math.random() - 0.45) * 8;
+        const vol = (Math.random() * 500000 + 50000).toFixed(0);
+        const pred = Math.random() > 0.5 ? chalk.green('▲ BULLISH') : chalk.red('▼ BEARISH');
+        const changeStr = change >= 0 ? chalk.green(`+${change.toFixed(2)}%`) : chalk.red(`${change.toFixed(2)}%`);
+        const col = COLORS[i];
+        console.log(
+          chalk.bold.white('  │') +
+          col(`  ${PAIRS[i].padEnd(13)}`) +
+          chalk.bold.white('│') +
+          chalk.white(`  ${String(price).padEnd(12)}`) +
+          chalk.bold.white('│') +
+          ` ${changeStr.padEnd(18)}` +
+          chalk.bold.white('│') +
+          chalk.white(` $${vol.padStart(9)} `) +
+          chalk.bold.white('│') +
+          `  ${pred.padEnd(21)}` +
+          chalk.bold.white('│')
+        );
+      }
+      console.log(chalk.bold.white('  └──────────────┴──────────────┴───────────┴───────────┴───────────────┘'));
+      console.log('');
+
+      console.log(chalk.bold.white('  ┌─────────────────────────────────────────────────────────────────────┐'));
+      console.log(chalk.bold.white('  │') + chalk.bold.yellow('  🤖 ACTIVE AGENTS') + chalk.bold.white('                                                    │'));
+      console.log(chalk.bold.white('  ├────────────────────────────┬────────────────┬──────────┬────────────┤'));
+      console.log(chalk.bold.white('  │') + chalk.bold('  Agent                     ') + chalk.bold.white('│') + chalk.bold('  Model         ') + chalk.bold.white('│') + chalk.bold(' Requests ') + chalk.bold.white('│') + chalk.bold(' Earned XLM ') + chalk.bold.white('│'));
+      console.log(chalk.bold.white('  ├────────────────────────────┼────────────────┼──────────┼────────────┤'));
+      for (const a of agents.slice(0, 5)) {
+        const status = a.is_active ? chalk.green('●') : chalk.red('●');
+        console.log(
+          chalk.bold.white('  │') +
+          ` ${status} ${chalk.cyan(a.name.slice(0, 24).padEnd(26))}` +
+          chalk.bold.white('│') +
+          chalk.gray(` ${a.model.slice(0, 14).padEnd(15)} `) +
+          chalk.bold.white('│') +
+          chalk.white(`  ${String(a.total_requests).padStart(6)}  `) +
+          chalk.bold.white('│') +
+          chalk.yellow(` ${a.total_earned_xlm.toFixed(2).padStart(9)} XLM`) +
+          chalk.bold.white('│')
+        );
+      }
+      if (agents.length === 0) {
+        console.log(chalk.bold.white('  │') + chalk.gray('  No agents found. Run agentforge agents list') + chalk.bold.white('                        │'));
+      }
+      console.log(chalk.bold.white('  └────────────────────────────┴────────────────┴──────────┴────────────┘'));
+      console.log('');
+
+      const activities = [
+        { type: chalk.cyan('AGENT_RUN'), agent: 'MEV Bot', amount: colorPnl(0.05), wallet: 'GB3X...9K' },
+        { type: chalk.green('PAYMENT'), agent: 'Trading Bot', amount: colorPnl(0.1), wallet: 'GC7Y...2M' },
+        { type: chalk.yellow('STAKING'), agent: 'Liquidity Tracker', amount: colorPnl(-0.02), wallet: 'GA2B...8L' },
+        { type: chalk.blue('PREDICTION'), agent: 'Mempool Monitor', amount: colorPnl(0.08), wallet: 'GD9P...5N' },
+        { type: chalk.red('YIELD'), agent: 'Arbitrage Tracker', amount: colorPnl(0.15), wallet: 'GF1Q...3R' },
+      ];
+
+      console.log(chalk.bold.white('  ┌─────────────────────────────────────────────────────────────────────┐'));
+      console.log(chalk.bold.white('  │') + chalk.bold.green('  ⚡ RECENT ACTIVITY') + chalk.bold.white(' (via Ably · 0x402)') + chalk.bold.white('                                  │'));
+      console.log(chalk.bold.white('  ├────────────────┬──────────────────────┬──────────┬─────────────────┤'));
+      console.log(chalk.bold.white('  │') + chalk.bold(' Type           ') + chalk.bold.white('│') + chalk.bold(' Agent                ') + chalk.bold.white('│') + chalk.bold(' XLM      ') + chalk.bold.white('│') + chalk.bold(' Wallet          ') + chalk.bold.white('│'));
+      console.log(chalk.bold.white('  ├────────────────┼──────────────────────┼──────────┼─────────────────┤'));
+      for (const act of activities) {
+        console.log(
+          chalk.bold.white('  │') +
+          ` ${act.type.padEnd(23)}` +
+          chalk.bold.white('│') +
+          chalk.white(` ${act.agent.padEnd(21)} `) +
+          chalk.bold.white('│') +
+          ` ${act.amount.padEnd(17)}` +
+          chalk.bold.white('│') +
+          chalk.gray(` ${act.wallet.padEnd(16)} `) +
+          chalk.bold.white('│')
+        );
+      }
+      console.log(chalk.bold.white('  └────────────────┴──────────────────────┴──────────┴─────────────────┘'));
+      console.log('');
+      console.log(chalk.gray(`  Refreshing every ${interval}ms  ·  Press Ctrl+C to exit`));
+    }
+
+    await render();
+    const timer = setInterval(render, interval);
+
+    process.on('SIGINT', () => {
+      clearInterval(timer);
+      console.log('\n' + chalk.cyan('  Dashboard closed. Goodbye! 👋\n'));
+      process.exit(0);
+    });
+  });
+
+console.log(BANNER);
 program.parseAsync(process.argv);

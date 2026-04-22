@@ -765,9 +765,16 @@ export default function WorkflowPage() {
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Strategy Notes state
+  const [notes, setNotes] = useState('');
+  const [notesSaved, setNotesSaved] = useState(false);
+
   useEffect(() => {
     const addr = localStorage.getItem('wallet_address');
     setWalletAddress(addr);
+    // Load persisted notes
+    const saved = localStorage.getItem('agentforge-workflow-notes');
+    if (saved) setNotes(saved);
   }, []);
 
   // Canvas history helpers
@@ -843,6 +850,25 @@ export default function WorkflowPage() {
   function approvePayment() {
     setPendingPayment(false);
     setTasks((t) => t.map((x) => x.status === 'done' ? x : { ...x, status: 'idle' }));
+  }
+
+  function saveNotes() {
+    localStorage.setItem('agentforge-workflow-notes', notes);
+    setNotesSaved(true);
+    setTimeout(() => setNotesSaved(false), 2000);
+  }
+
+  function sendNotesToTasks() {
+    const lines = notes.split('\n');
+    const checkboxTasks = lines
+      .filter((line) => line.trim().startsWith('- [ ]'))
+      .map((line) => line.replace(/^- \[ \]\s*/, '').trim())
+      .filter(Boolean);
+    if (checkboxTasks.length === 0) return;
+    setTasks((t) => [
+      ...t,
+      ...checkboxTasks.map((label) => ({ id: uid(), label, status: 'idle' as const })),
+    ]);
   }
 
   if (!walletAddress) {
@@ -1085,6 +1111,44 @@ export default function WorkflowPage() {
         className="rounded-2xl border border-[rgba(0,255,229,0.1)] bg-[rgba(255,255,255,0.01)] p-6"
       >
         <PaymentExecutorSection walletAddress={walletAddress} />
+      </motion.div>
+
+      {/* ── Strategy Notes ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="rounded-2xl border border-[rgba(255,184,0,0.12)] bg-[rgba(255,255,255,0.01)] p-6 space-y-4"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-syne text-xl font-bold text-white">Strategy Notes</h2>
+            <p className="font-mono text-xs text-gray-500 mt-0.5">
+              Saved to localStorage · Lines starting with <code className="text-[#00FFE5]">- [ ]</code> become tasks
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={sendNotesToTasks}
+              className="px-3 py-1.5 rounded-lg border border-[rgba(0,255,229,0.2)] text-[#00FFE5] font-mono text-xs hover:bg-[rgba(0,255,229,0.08)] transition-colors"
+            >
+              Send to Tasks
+            </button>
+            <button
+              onClick={saveNotes}
+              className="px-3 py-1.5 rounded-lg bg-[rgba(255,184,0,0.1)] border border-[rgba(255,184,0,0.2)] text-[#FFB800] font-mono text-xs hover:bg-[rgba(255,184,0,0.18)] transition-colors"
+            >
+              {notesSaved ? '✓ Saved' : 'Save Notes'}
+            </button>
+          </div>
+        </div>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder={`Write your trading strategy or agent plan here...\n\nTip: Lines starting with "- [ ]" will be imported as tasks:\n- [ ] Analyze XLM/USDC liquidity\n- [ ] Run MEV bot scan\n- [ ] Execute arbitrage if profit > 0.5%`}
+          rows={10}
+          className="w-full bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.07)] rounded-xl px-4 py-3 font-mono text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[rgba(255,184,0,0.3)] resize-y transition-colors"
+        />
       </motion.div>
     </div>
   );
