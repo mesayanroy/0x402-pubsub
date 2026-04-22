@@ -5,31 +5,87 @@ The AgentForge CLI provides full terminal access to all platform features.
 ## Installation
 
 ```bash
-pnpm cli
+pnpm install
+pnpm cli -- --help
 # or build and install globally:
 pnpm build && npm install -g .
+```
+
+## Terminal Workflow
+
+### 1. Initialize a project
+
+```bash
+agentforge init my-agent
+cd my-agent
+cp .env.example .env
+```
+
+`agentforge init` creates the scaffold for agents, tasks, workflows, dashboard config, and docs.
+
+### 2. Inspect agents
+
+```bash
+agentforge agents list
+```
+
+### 3. Run an agent with payment handling
+
+```bash
+agentforge agents run <agentId> \
+  --input "Summarize today's market tape" \
+  --secret $STELLAR_AGENT_SECRET
+```
+
+If the agent returns a 402 challenge, the CLI signs and submits the Stellar payment, then retries the request automatically.
+
+### 4. Watch the live dashboard
+
+```bash
+agentforge dash --interval 3000
+```
+
+The dashboard shows a terminal Polymarket-style view with prices, request stats, earnings, and recent activity.
+
+### 5. Route agent-to-agent work
+
+```bash
+agentforge a2a call <fromAgentId> <toAgentId> \
+  --input "Delegate: analyze the liquidity report" \
+  --secret $STELLAR_AGENT_SECRET
+```
+
+### 6. Inspect payments
+
+```bash
+agentforge tx status <txHash>
+agentforge tx inspect <txHash>
 ```
 
 ## Commands
 
 ### `agentforge init [projectName]`
-Creates a new AgentForge project scaffold:
+Creates a new AgentForge project scaffold with folders and starter files for agents, tasks, workflows, dashboard config, and CLI docs:
 ```bash
 agentforge init my-trading-agent
 ```
 Creates:
-- `my-trading-agent/agents/templates/` — agent templates
-- `my-trading-agent/tasks/` — task queue
-- `my-trading-agent/workflows/` — workflow definitions  
-- `my-trading-agent/config/agents.json` — agent config
-- `my-trading-agent/.env` — environment template
+- `my-trading-agent/agents/templates/` — starter agent templates
+- `my-trading-agent/tasks/queued.json` — queued task list
+- `my-trading-agent/tasks/completed.json` — completed task list
+- `my-trading-agent/workflows/default.json` — workflow definition
+- `my-trading-agent/config/agents.json` — agent registry config
+- `my-trading-agent/config/dashboard.json` — terminal dashboard config
+- `my-trading-agent/docs/CLI_GUIDE.md` — local CLI usage guide
+- `my-trading-agent/.env.example` — environment template
+- `my-trading-agent/.agentforge/dashboard.json` — terminal dashboard metadata
 
 ### `agentforge dash`
 Opens the live terminal polymarket dashboard with:
-- Real-time crypto market prices (XLM, BTC, ETH, SOL, AF$)
+- Real-time crypto market prices in green, yellow, red, blue, and white
 - Active agent list with earnings
 - Recent activity feed (via Ably)
-- Simulated PnL tracking
+- Simulated PnL tracking and request rates
 
 ```bash
 agentforge dash --interval 5000  # refresh every 5s
@@ -44,6 +100,12 @@ Runs an agent with optional 0x402 Stellar payment.
 ```bash
 agentforge agents run mev_bot --input "Find MEV opportunities" --secret $STELLAR_SECRET
 ```
+
+If the requested agent is paid, the CLI will:
+1. Receive the 402 payment challenge.
+2. Build and sign a Stellar payment transaction.
+3. Submit to Horizon.
+4. Retry the agent call with payment proof headers.
 
 ### `agentforge a2a call <fromAgentId> <toAgentId>`
 Routes a request between two agents (multi-agent compose).
@@ -75,6 +137,8 @@ When an agent requires payment:
 3. Signs and submits to Horizon
 4. Retries the agent call with `X-Payment-Tx-Hash` header
 
+If a faucet or payment step reports `invalid encoded string`, the wallet address is not a valid Stellar public key. Use a Freighter address that starts with `G` and retry.
+
 ## Python LangGraph Templates
 
 See `agents-sdk/templates/python/README.md` for LangGraph agent templates.
@@ -95,6 +159,8 @@ curl -X POST http://localhost:3000/api/faucet/claim \
   -H "Content-Type: application/json" \
   -d '{"walletAddress": "G..."}'
 ```
+
+After a successful claim, use the Freighter token add prompt in the faucet UI if AF$ does not appear automatically in your wallet.
 
 ## Environment Variables
 

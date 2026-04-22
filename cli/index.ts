@@ -52,6 +52,8 @@ ${chalk.cyan('║')}  ${chalk.bold.cyan('        █████╗  ██║  
 ${chalk.cyan('║')}  ${chalk.bold.cyan('        ██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝  ')}  ${chalk.cyan('║')}
 ${chalk.cyan('║')}  ${chalk.bold.cyan('        ██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗')}  ${chalk.cyan('║')}
 ${chalk.cyan('║')}  ${chalk.bold.cyan('        ╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝')}  ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.bold.cyan('              AgentForge CLI')}                    ${chalk.cyan('║')}
+${chalk.cyan('║')}  ${chalk.gray('  init · agents · a2a · dash · tx')}               ${chalk.cyan('║')}
 ${chalk.cyan('╚═══════════════════════════════════════════════╝')}
   ${chalk.gray('CLI v0.1.0 · 0x402 Payment Protocol · Stellar Testnet')}
 `;
@@ -79,6 +81,14 @@ function stellarExplorerUrl(txHash: string): string {
 function truncate(s: string, n = 8): string {
   if (s.length <= n * 2 + 3) return s;
   return `${s.slice(0, n)}…${s.slice(-n)}`;
+}
+
+function writeTextFile(filePath: string, content: string): void {
+  fs.writeFileSync(filePath, content);
+}
+
+function writeJsonFile(filePath: string, value: unknown): void {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 interface AgentRecord {
@@ -571,6 +581,7 @@ program
       `${projectName}/workflows`,
       `${projectName}/config`,
       `${projectName}/docs`,
+      `${projectName}/src`,
       `${projectName}/.agentforge`,
     ];
 
@@ -578,66 +589,106 @@ program
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    fs.writeFileSync(
-      `${projectName}/.env`,
+    writeTextFile(
+      `${projectName}/.env.example`,
       `# AgentForge Environment
 AGENTFORGE_API_URL=http://localhost:3000
 STELLAR_AGENT_SECRET=
 QSTASH_TOKEN=
 ABLY_API_KEY=
 NEXT_PUBLIC_ABLY_KEY=
+NEXT_PUBLIC_HORIZON_URL=https://horizon-testnet.stellar.org
+NEXT_PUBLIC_STELLAR_NETWORK=testnet
+NEXT_PUBLIC_AF_TOKEN_CONTRACT_ID=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 `
     );
 
-    fs.writeFileSync(
-      `${projectName}/config/agents.json`,
-      JSON.stringify(
+    writeTextFile(`${projectName}/.env`, '# Copy values from .env.example and fill in your secrets\n');
+
+    writeJsonFile(`${projectName}/config/agents.json`, {
+      agents: [
         {
-          agents: [
-            { id: 'agent-1', name: 'My First Agent', model: 'openai-gpt4o-mini', price_xlm: 0.05 },
-          ],
+          id: 'agent-1',
+          name: 'My First Agent',
+          model: 'openai-gpt4o-mini',
+          price_xlm: 0.05,
+          description: 'Starter AgentForge agent scaffold',
         },
-        null,
-        2
-      )
+      ],
+    });
+
+    writeJsonFile(`${projectName}/config/dashboard.json`, {
+      title: 'AgentForge Polymarket Dashboard',
+      pairs: ['XLM/USDC', 'BTC/USDC', 'ETH/USDC', 'SOL/USDC', 'AF$/USDC'],
+      refreshIntervalMs: 3000,
+    });
+
+    writeJsonFile(`${projectName}/agents/templates/researcher.json`, {
+      name: 'Researcher',
+      model: 'openai-gpt4o-mini',
+      prompt: 'Analyze markets, summarize opportunities, and return concise action items.',
+      tasks: ['scan', 'summarize', 'rank'],
+    });
+
+    writeJsonFile(`${projectName}/agents/templates/trader.json`, {
+      name: 'Trader',
+      model: 'openai-gpt4o-mini',
+      prompt: 'Evaluate execution signals and prepare trade-ready instructions.',
+      tasks: ['evaluate', 'score', 'execute'],
+    });
+
+    writeJsonFile(`${projectName}/tasks/queued.json`, []);
+    writeJsonFile(`${projectName}/tasks/completed.json`, []);
+
+    writeJsonFile(`${projectName}/workflows/default.json`, {
+      name: 'Default Workflow',
+      tasks: [],
+      agents: [],
+      notes: '',
+      createdAt: new Date().toISOString(),
+    });
+
+    writeTextFile(
+      `${projectName}/docs/CLI_GUIDE.md`,
+      `# AgentForge CLI Guide\n\nUse the terminal to list agents, run paid requests, inspect Stellar transactions, and watch the live dashboard.\n`
     );
 
-    fs.writeFileSync(
-      `${projectName}/workflows/default.json`,
-      JSON.stringify(
-        {
-          name: 'Default Workflow',
-          tasks: [],
-          agents: [],
-          notes: '',
-          createdAt: new Date().toISOString(),
-        },
-        null,
-        2
-      )
-    );
+    writeJsonFile(`${projectName}/.agentforge/dashboard.json`, {
+      mode: 'polymarket',
+      theme: 'terminal-neon',
+      includeActivityFeed: true,
+    });
 
-    fs.writeFileSync(
+    writeTextFile(
       `${projectName}/README.md`,
-      `# ${projectName}\n\nAgentForge project scaffolded with \`agentforge init\`.\n\n## Quick Start\n\n\`\`\`bash\nagentforge agents list\nagentforge agents run <agentId> --input "your prompt"\nagentforge dash\n\`\`\`\n`
+      `# ${projectName}\n\nAgentForge project scaffolded with \`agentforge init\`.\n\n## Quick Start\n\n\`\`\`bash\ncp .env.example .env\nagentforge agents list\nagentforge agents run <agentId> --input "your prompt"\nagentforge dash\n\`\`\`\n`
     );
 
     spinner.succeed(chalk.green('Project structure created!'));
     console.log('');
     console.log(chalk.bold('Created:'));
     dirs.forEach((d) => console.log(chalk.gray(`  📁 ${d}`)));
+    console.log(chalk.gray(`  📄 ${projectName}/.env.example`));
     console.log(chalk.gray(`  📄 ${projectName}/.env`));
     console.log(chalk.gray(`  📄 ${projectName}/config/agents.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/config/dashboard.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/agents/templates/researcher.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/agents/templates/trader.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/tasks/queued.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/tasks/completed.json`));
     console.log(chalk.gray(`  📄 ${projectName}/workflows/default.json`));
+    console.log(chalk.gray(`  📄 ${projectName}/docs/CLI_GUIDE.md`));
+    console.log(chalk.gray(`  📄 ${projectName}/.agentforge/dashboard.json`));
     console.log(chalk.gray(`  📄 ${projectName}/README.md`));
     console.log('');
     console.log(chalk.bold('Next steps:'));
     console.log(chalk.gray(`  1. cd ${projectName}`));
-    console.log(chalk.gray('  2. Fill in your .env with API keys'));
+    console.log(chalk.gray('  2. cp .env.example .env and fill in your API keys'));
     console.log(chalk.gray('  3. agentforge agents list'));
     console.log(chalk.gray('  4. agentforge dash'));
+    console.log(chalk.gray('  5. agentforge agents run <agentId> --input "your prompt" --secret <STELLAR_SECRET>'));
     console.log('');
   });
 
@@ -677,7 +728,7 @@ program
       clearScreen();
       console.log(BANNER);
       console.log(chalk.bold.white('  ┌─────────────────────────────────────────────────────────────────────┐'));
-      console.log(chalk.bold.white('  │') + chalk.bold.cyan('  📊 CRYPTO MARKETS  ') + chalk.gray('(testnet simulation · Stellar DEX)') + chalk.bold.white('                     │'));
+      console.log(chalk.bold.white('  │') + chalk.bold.cyan('  📊 POLYMARKET DASHBOARD  ') + chalk.gray('(testnet simulation · Stellar DEX)') + chalk.bold.white('              │'));
       console.log(chalk.bold.white('  ├──────────────┬──────────────┬───────────┬───────────┬───────────────┤'));
       console.log(chalk.bold.white('  │') + chalk.bold('  Pair         ') + chalk.bold.white('│') + chalk.bold('  Price       ') + chalk.bold.white('│') + chalk.bold(' 24h Change') + chalk.bold.white('│') + chalk.bold('   Volume  ') + chalk.bold.white('│') + chalk.bold('  Prediction   ') + chalk.bold.white('│'));
       console.log(chalk.bold.white('  ├──────────────┼──────────────┼───────────┼───────────┼───────────────┤'));
@@ -774,4 +825,5 @@ program
   });
 
 console.log(BANNER);
-program.parseAsync(process.argv);
+const cliArgv = process.argv[2] === '--' ? [process.argv[0], process.argv[1], ...process.argv.slice(3)] : process.argv;
+program.parseAsync(cliArgv);

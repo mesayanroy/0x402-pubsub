@@ -24,17 +24,35 @@ async function pushFaucetActivity(wallet: string, amount: number): Promise<void>
   } catch { /* ignore */ }
 }
 
+function isValidStellarAddress(address: string): boolean {
+  try {
+    Keypair.fromPublicKey(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isValidStellarSecret(secret: string): boolean {
+  try {
+    Keypair.fromSecret(secret);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { walletAddress?: string };
-  const { walletAddress } = body;
+  const walletAddress = typeof body.walletAddress === 'string' ? body.walletAddress.trim() : '';
 
-  if (!walletAddress || walletAddress.length < 56) {
-    return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 });
+  if (!walletAddress || !isValidStellarAddress(walletAddress)) {
+    return NextResponse.json({ error: 'Invalid Stellar wallet address. Connect Freighter and use a public key that starts with G.' }, { status: 400 });
   }
 
   const faucetSecret = process.env.STELLAR_AGENT_SECRET;
-  if (!faucetSecret) {
-    return NextResponse.json({ error: 'Faucet not configured (STELLAR_AGENT_SECRET missing)' }, { status: 503 });
+  if (!faucetSecret || !isValidStellarSecret(faucetSecret)) {
+    return NextResponse.json({ error: 'Faucet not configured. Set a valid STELLAR_AGENT_SECRET on testnet.' }, { status: 503 });
   }
 
   // Check & update claims in Supabase
@@ -97,6 +115,7 @@ export async function POST(req: NextRequest) {
       txHash,
       claimsRemaining: Math.max(0, FAUCET_MAX_CLAIMS - (currentClaims + 1)),
       amountXlm: FAUCET_AMOUNT_XLM,
+      tokenContractId: process.env.NEXT_PUBLIC_AF_TOKEN_CONTRACT_ID || '',
       explorerUrl: `https://stellar.expert/explorer/testnet/tx/${txHash}`,
     });
   } catch (err) {

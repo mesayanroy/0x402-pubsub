@@ -4,6 +4,12 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 
 const AF_TOKEN_CONTRACT = process.env.NEXT_PUBLIC_AF_TOKEN_CONTRACT_ID || '';
+const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+const SOROBAN_RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
+const NETWORK_PASSPHRASE =
+  process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet'
+    ? 'Public Global Stellar Network ; September 2015'
+    : 'Test SDF Network ; September 2015';
 const FAUCET_AMOUNT = 5000;
 const MAX_CLAIMS = 3;
 
@@ -11,6 +17,7 @@ export default function FaucetPage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [claimsRemaining, setClaimsRemaining] = useState<number | null>(null);
   const [status, setStatus] = useState<'idle' | 'checking' | 'claiming' | 'success' | 'error'>('idle');
+  const [tokenStatus, setTokenStatus] = useState<'idle' | 'adding' | 'added' | 'error'>('idle');
   const [txHash, setTxHash] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [totalClaimed, setTotalClaimed] = useState(0);
@@ -35,7 +42,24 @@ export default function FaucetPage() {
   async function claimTokens() {
     if (!walletAddress.trim()) return;
     setStatus('claiming');
+    setTokenStatus('idle');
     setErrorMsg('');
+
+    if (AF_TOKEN_CONTRACT) {
+      try {
+        const txHash = await claimAfTokensWithFreighter();
+        setTxHash(txHash);
+        setClaimsRemaining(null);
+        setStatus('success');
+        await addTokenToFreighter();
+        return;
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : 'AF$ claim failed');
+        setStatus('error');
+        return;
+      }
+    }
+
     try {
       const res = await fetch('/api/faucet/claim', {
         method: 'POST',
@@ -50,6 +74,97 @@ export default function FaucetPage() {
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Claim failed');
       setStatus('error');
+    }
+  }
+
+  async function claimAfTokensWithFreighter(): Promise<string> {
+    const StellarSdk = await import('stellar-sdk');
+    const freighter = await import('@stellar/freighter-api');
+
+    const connection = await freighter.isConnected();
+    if (!connection.isConnected) {
+      throw new Error('Freighter is not installed or not connected.');
+    }
+
+    const accessResult = await freighter.requestAccess();
+    if (accessResult && 'error' in accessResult && accessResult.error) {
+      throw new Error('Freighter access was denied.');
+    }
+
+    const { address: connectedAddress, error: addressError } = await freighter.getAddress();
+    if (addressError || !connectedAddress) {
+      throw new Error('Could not read the connected Freighter wallet address.');
+    }
+
+    const recipient = walletAddress.trim();
+    if (recipient !== connectedAddress) {
+      throw new Error('Connect Freighter with the same wallet address shown in the form before claiming AF$.');
+    }
+
+    const horizonServer = new StellarSdk.Horizon.Server(HORIZON_URL);
+    const rpcServer = new StellarSdk.SorobanRpc.Server(SOROBAN_RPC_URL, { allowHttp: true });
+    const account = await horizonServer.loadAccount(recipient);
+
+    const claimTx = new StellarSdk.TransactionBuilder(account, {
+      fee: StellarSdk.BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(
+        StellarSdk.Operation.invokeContractFunction({
+          contract: AF_TOKEN_CONTRACT,
+          function: 'faucet_claim',
+          args: [new StellarSdk.Address(recipient).toScVal()],
+        })
+      )
+      .setTimeout(180)
+      .build();
+
+    const prepared = await rpcServer.prepareTransaction(claimTx);
+    const signedResult = await freighter.signTransaction(prepared.toXDR(), {
+      networkPassphrase: NETWORK_PASSPHRASE,
+    });
+
+    if (signedResult.error) {
+      throw new Error(String(signedResult.error));
+    }
+
+    const signedTx = StellarSdk.TransactionBuilder.fromXDR(signedResult.signedTxXdr, NETWORK_PASSPHRASE);
+    const sendResult = await rpcServer.sendTransaction(signedTx);
+    if (!sendResult.hash) {
+      throw new Error('AF$ claim transaction was submitted but no hash was returned.');
+    }
+
+    return sendResult.hash;
+  }
+
+  async function addTokenToFreighter() {
+    if (!AF_TOKEN_CONTRACT) {
+      setTokenStatus('error');
+      setErrorMsg('AF$ contract is not configured in this environment.');
+      return;
+    }
+
+    setTokenStatus('adding');
+    setErrorMsg('');
+
+    try {
+      const freighter = await import('@stellar/freighter-api');
+      const connection = await freighter.isConnected();
+      if (!connection.isConnected) {
+        throw new Error('Freighter is not installed or not connected.');
+      }
+
+      await freighter.requestAccess();
+      const { contractId, error } = await freighter.addToken({ contractId: AF_TOKEN_CONTRACT });
+
+      if (error || !contractId) {
+        throw new Error((error as { message?: string } | null)?.message || 'Freighter could not add the AF$ token.');
+      }
+
+      setTokenStatus('added');
+    } catch (err) {
+      setTokenStatus('error');
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to add AF$ token to Freighter');
     }
   }
 
@@ -107,6 +222,7 @@ export default function FaucetPage() {
                 setWalletAddress(e.target.value);
                 setClaimsRemaining(null);
                 setStatus('idle');
+                setTokenStatus('idle');
                 setTxHash(null);
               }}
               onBlur={checkClaims}
@@ -169,6 +285,25 @@ export default function FaucetPage() {
               >
                 {txHash}
               </a>
+              {AF_TOKEN_CONTRACT && (
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-white/50">
+                    If AF$ does not appear in Freighter yet, add the contract token below.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={addTokenToFreighter}
+                    disabled={tokenStatus === 'adding' || tokenStatus === 'added'}
+                    className="rounded-lg border border-[rgba(0,255,229,0.2)] bg-[rgba(0,255,229,0.08)] px-3 py-2 text-xs font-semibold text-[#00FFE5] transition-colors hover:bg-[rgba(0,255,229,0.12)] disabled:opacity-60"
+                  >
+                    {tokenStatus === 'adding'
+                      ? 'Adding AF$ to Freighter...'
+                      : tokenStatus === 'added'
+                      ? 'AF$ Added to Freighter'
+                      : 'Add AF$ to Freighter'}
+                  </button>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -186,7 +321,7 @@ export default function FaucetPage() {
           <p>Use them to run agents, trade on the playground, and test the 0x402 payment protocol.</p>
           {AF_TOKEN_CONTRACT && (
             <p className="font-mono text-xs mt-2">
-              Contract: <span className="text-white/60">{AF_TOKEN_CONTRACT.slice(0, 16)}...{AF_TOKEN_CONTRACT.slice(-8)}</span>
+              AF$ contract: <span className="text-white/60">{AF_TOKEN_CONTRACT.slice(0, 16)}...{AF_TOKEN_CONTRACT.slice(-8)}</span>
             </p>
           )}
         </div>
