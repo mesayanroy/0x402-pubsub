@@ -21,13 +21,13 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 bg-[rgba(5,5,8,0.85)] backdrop-blur-md border-b border-[rgba(0,255,229,0.08)]">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="group inline-flex items-center">
-          <span className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-md border border-[rgba(0,255,229,0.25)] bg-[linear-gradient(160deg,rgba(0,255,229,0.14),rgba(0,0,0,0.18))] shadow-[0_0_18px_-8px_rgba(0,255,229,0.8)] transition-colors group-hover:border-[rgba(0,255,229,0.45)]">
+          <span className="relative flex h-12 w-12 items-center justify-center overflow-hidden">
             <Image
               src={BRAND_LOGO_SRC}
               alt="AgentForge logo"
               fill
-              sizes="40px"
-              className="object-cover"
+              sizes="48px"
+              className="object-contain"
               priority
             />
           </span>
