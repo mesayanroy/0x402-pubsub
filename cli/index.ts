@@ -24,6 +24,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   Keypair,
   Networks,
@@ -39,6 +41,7 @@ import {
 const DEFAULT_API_BASE = process.env.AGENTFORGE_API_URL || 'http://localhost:3000';
 const HORIZON_URL =
   process.env.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org';
+const LOCAL_AGENT_STORE_PATH = path.join(process.cwd(), '.agent-store.json');
 const STELLAR_NETWORK = (process.env.NEXT_PUBLIC_STELLAR_NETWORK || 'testnet') as
   | 'testnet'
   | 'mainnet';
@@ -83,6 +86,10 @@ interface RunResponse {
   };
 }
 
+interface LocalAgentStore {
+  agents?: Array<Partial<AgentRecord> & { id: string; name?: string }>;
+}
+
 /**
  * Build, sign and submit a Stellar XLM payment.
  * Returns the transaction hash.
@@ -119,11 +126,82 @@ async function payXLM(
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
+function isLocalApiBase(apiBase: string): boolean {
+  try {
+    const url = new URL(apiBase);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+function fallbackDemoAgent(): AgentRecord {
+  return {
+    id: '1',
+    owner_wallet: 'GABC1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234XYZ1',
+    name: 'DeFi Analyst',
+    description: 'Analyzes DeFi protocols, yields, and on-chain metrics in real time.',
+    model: 'openai-gpt4o-mini',
+    price_xlm: 0.05,
+    total_requests: 0,
+    total_earned_xlm: 0,
+    is_active: true,
+  };
+}
+
+function readLocalAgentsFallback(): AgentRecord[] {
+  try {
+    if (!fs.existsSync(LOCAL_AGENT_STORE_PATH)) {
+      return [fallbackDemoAgent()];
+    }
+
+    const raw = fs.readFileSync(LOCAL_AGENT_STORE_PATH, 'utf8').trim();
+    if (!raw) return [fallbackDemoAgent()];
+
+    const parsed = JSON.parse(raw) as LocalAgentStore;
+    const rows = Array.isArray(parsed.agents) ? parsed.agents : [];
+
+    const agents = rows
+      .filter((a) => a && typeof a.id === 'string' && a.id.length > 0)
+      .map((a) => ({
+        id: a.id,
+        owner_wallet:
+          typeof a.owner_wallet === 'string' && a.owner_wallet.length > 0
+            ? a.owner_wallet
+            : 'unknown',
+        name:
+          typeof a.name === 'string' && a.name.length > 0
+            ? a.name
+            : `Agent ${a.id}`,
+        description: typeof a.description === 'string' ? a.description : '',
+        model: typeof a.model === 'string' ? a.model : 'unknown',
+        price_xlm: typeof a.price_xlm === 'number' ? a.price_xlm : 0,
+        total_requests:
+          typeof a.total_requests === 'number' ? a.total_requests : 0,
+        total_earned_xlm:
+          typeof a.total_earned_xlm === 'number' ? a.total_earned_xlm : 0,
+        is_active: typeof a.is_active === 'boolean' ? a.is_active : true,
+      }))
+      .filter((a) => a.is_active);
+
+    return agents.length > 0 ? agents : [fallbackDemoAgent()];
+  } catch {
+    return [fallbackDemoAgent()];
+  }
+}
+
 async function fetchAgents(apiBase: string): Promise<AgentRecord[]> {
-  const res = await fetch(`${apiBase}/api/agents/list`, { method: 'GET' });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
-  const data = (await res.json()) as { agents?: AgentRecord[] };
-  return data.agents ?? [];
+  try {
+    const res = await fetch(`${apiBase}/api/agents/list`, { method: 'GET' });
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = (await res.json()) as { agents?: AgentRecord[] };
+    return data.agents ?? [];
+  } catch (err) {
+    if (isLocalApiBase(apiBase)) {
+      return readLocalAgentsFallback();
+    }
+    throw err;
+  }
 }
 
 async function submitSignedXdr(signedXdr: string): Promise<string> {
