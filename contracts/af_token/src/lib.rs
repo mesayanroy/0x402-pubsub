@@ -131,8 +131,13 @@ impl AfToken {
     // ─── Faucet ───────────────────────────────────────────────────────────────
 
     /// Claim 5,000 AF$ tokens. Max 3 claims per wallet address.
-    pub fn faucet_claim(env: Env, recipient: Address) {
-        recipient.require_auth();
+    /// Authorization is provided by the admin (server-side faucet), NOT the recipient,
+    /// so this can be called from the backend without the user signing.
+    pub fn faucet_claim(env: Env, admin: Address, recipient: Address) {
+        // Only the contract admin may call the faucet on behalf of a recipient.
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN_KEY).unwrap();
+        assert!(admin == stored_admin, "caller is not the admin");
 
         let claims: u32 = env
             .storage()
@@ -143,7 +148,6 @@ impl AfToken {
         assert!(claims < FAUCET_MAX_CLAIMS, "faucet claim limit reached (max 3)");
 
         // Transfer from admin balance to recipient
-        let admin: Address = env.storage().instance().get(&ADMIN_KEY).unwrap();
         let admin_balance = Self::balance(env.clone(), admin.clone());
         assert!(admin_balance >= FAUCET_AMOUNT, "faucet depleted");
 

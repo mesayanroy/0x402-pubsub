@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Keypair, Networks, Asset, Memo, TransactionBuilder, Operation, Horizon } from 'stellar-sdk';
+import {
+  Keypair,
+  Networks,
+  Asset,
+  Memo,
+  TransactionBuilder,
+  Operation,
+  Horizon,
+  StrKey,
+} from 'stellar-sdk';
 import Ably from 'ably';
 
 const FAUCET_MAX_CLAIMS = 3;
-const FAUCET_AMOUNT_XLM = 5; // 5 XLM placeholder until AF$ token is on-chain (see contracts/af_token)
+const FAUCET_AMOUNT_XLM = 5; // 5 XLM per claim (AF$ on-chain via Soroban — see contracts/af_token)
 const HORIZON_URL = process.env.NEXT_PUBLIC_HORIZON_URL || 'https://horizon-testnet.stellar.org';
 const NETWORK_PASSPHRASE = Networks.TESTNET;
 
@@ -12,8 +21,8 @@ async function pushFaucetActivity(wallet: string, amount: number): Promise<void>
   if (!key) return;
   try {
     const ably = new Ably.Rest({ key });
-    await ably.channels.get('marketplace').publish('new_agent', {
-      eventType: 'new_agent',
+    await ably.channels.get('marketplace').publish('faucet_claim', {
+      eventType: 'faucet_claim',
       agentId: 'faucet',
       agentName: 'AF$ Faucet',
       ownerWallet: wallet,
@@ -21,20 +30,48 @@ async function pushFaucetActivity(wallet: string, amount: number): Promise<void>
       priceXlm: amount,
       timestamp: new Date().toISOString(),
     });
-  } catch { /* ignore */ }
+  } catch { /* ignore Ably errors */ }
+}
+
+/** Validate the faucet secret key before attempting to use it. */
+function validateFaucetSecret(secret: string): { ok: true } | { ok: false; reason: string } {
+  if (!secret || secret.trim().length === 0) {
+    return { ok: false, reason: 'STELLAR_AGENT_SECRET is not set' };
+  }
+  const trimmed = secret.trim();
+  if (!trimmed.startsWith('S')) {
+    return {
+      ok: false,
+      reason: `STELLAR_AGENT_SECRET must be a Stellar secret key starting with "S". ` +
+        `Got a key starting with "${trimmed[0]}" — this looks like a ${
+          trimmed[0] === 'C' ? 'Soroban contract ID' :
+          trimmed[0] === 'G' ? 'Stellar public key' :
+          'non-secret value'
+        }. Please set a valid Stellar secret key (S...) in your environment.`,
+    };
+  }
+  if (!StrKey.isValidEd25519SecretSeed(trimmed)) {
+    return { ok: false, reason: 'STELLAR_AGENT_SECRET is not a valid Stellar secret key (failed StrKey validation).' };
+  }
+  return { ok: true };
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { walletAddress?: string };
   const { walletAddress } = body;
 
-  if (!walletAddress || walletAddress.length < 56) {
-    return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 });
+  if (!walletAddress || walletAddress.trim().length < 56) {
+    return NextResponse.json({ error: 'Invalid wallet address — must be a 56-character Stellar G-address.' }, { status: 400 });
   }
 
-  const faucetSecret = process.env.STELLAR_AGENT_SECRET;
-  if (!faucetSecret) {
-    return NextResponse.json({ error: 'Faucet not configured (STELLAR_AGENT_SECRET missing)' }, { status: 503 });
+  if (!StrKey.isValidEd25519PublicKey(walletAddress.trim())) {
+    return NextResponse.json({ error: 'Invalid wallet address — not a valid Stellar public key (G...).' }, { status: 400 });
+  }
+
+  const faucetSecret = process.env.STELLAR_AGENT_SECRET?.trim() ?? '';
+  const secretCheck = validateFaucetSecret(faucetSecret);
+  if (!secretCheck.ok) {
+    return NextResponse.json({ error: `Faucet not configured: ${(secretCheck as { ok: false; reason: string }).reason}` }, { status: 503 });
   }
 
   // Check & update claims in Supabase
@@ -50,7 +87,7 @@ export async function POST(req: NextRequest) {
     const { data } = await supabase
       .from('faucet_claims')
       .select('claims_count')
-      .eq('wallet_address', walletAddress)
+      .eq('wallet_address', walletAddress.trim())
       .single();
 
     currentClaims = data?.claims_count ?? 0;
@@ -59,7 +96,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Send XLM via Stellar
+  // Send XLM via Stellar Horizon
   try {
     const keypair = Keypair.fromSecret(faucetSecret);
     const server = new Horizon.Server(HORIZON_URL);
@@ -67,7 +104,7 @@ export async function POST(req: NextRequest) {
 
     const tx = new TransactionBuilder(account, { fee: '100', networkPassphrase: NETWORK_PASSPHRASE })
       .addOperation(Operation.payment({
-        destination: walletAddress,
+        destination: walletAddress.trim(),
         asset: Asset.native(),
         amount: FAUCET_AMOUNT_XLM.toFixed(7),
       }))
@@ -84,14 +121,14 @@ export async function POST(req: NextRequest) {
       const { createClient } = await import('@supabase/supabase-js');
       const supabase = createClient(supabaseUrl, supabaseKey);
       await supabase.from('faucet_claims').upsert({
-        wallet_address: walletAddress,
+        wallet_address: walletAddress.trim(),
         claims_count: currentClaims + 1,
         last_claim_at: new Date().toISOString(),
         total_received_xlm: (currentClaims + 1) * FAUCET_AMOUNT_XLM,
       }, { onConflict: 'wallet_address' });
     }
 
-    await pushFaucetActivity(walletAddress, FAUCET_AMOUNT_XLM);
+    await pushFaucetActivity(walletAddress.trim(), FAUCET_AMOUNT_XLM);
 
     return NextResponse.json({
       txHash,
@@ -100,7 +137,23 @@ export async function POST(req: NextRequest) {
       explorerUrl: `https://stellar.expert/explorer/testnet/tx/${txHash}`,
     });
   } catch (err) {
-    console.error('[faucet/claim] Error:', err);
-    return NextResponse.json({ error: `Faucet transaction failed: ${String(err)}` }, { status: 500 });
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[faucet/claim] Error:', message);
+
+    // Provide a helpful message for the most common error
+    if (message.includes('invalid encoded string') || message.includes('Invalid encoded string')) {
+      return NextResponse.json({
+        error: 'Faucet wallet is misconfigured — STELLAR_AGENT_SECRET is not a valid Stellar secret key. ' +
+          'Please set a valid S-prefixed testnet secret key and fund the faucet address via https://friendbot.stellar.org',
+      }, { status: 503 });
+    }
+
+    if (message.includes('op_no_source_account') || message.includes('op_underfunded') || message.includes('insufficient')) {
+      return NextResponse.json({
+        error: 'Faucet wallet has insufficient XLM. Fund the faucet address via https://friendbot.stellar.org',
+      }, { status: 503 });
+    }
+
+    return NextResponse.json({ error: `Faucet transaction failed: ${message}` }, { status: 500 });
   }
 }
