@@ -40,20 +40,22 @@ function validateFaucetSecret(secret: string): { ok: true } | { ok: false; reaso
   }
   const trimmed = secret.trim();
   if (!trimmed.startsWith('S')) {
+    const firstChar = trimmed[0] ?? '?';
+    const hint =
+      firstChar === 'C' ? 'Soroban contract ID' :
+      firstChar === 'G' ? 'Stellar public key' :
+      'non-secret value';
     return {
       ok: false,
       reason: `STELLAR_AGENT_SECRET must be a Stellar secret key starting with "S". ` +
-        `Got a key starting with "${trimmed[0]}" — this looks like a ${
-          trimmed[0] === 'C' ? 'Soroban contract ID' :
-          trimmed[0] === 'G' ? 'Stellar public key' :
-          'non-secret value'
-        }. Please set a valid Stellar secret key (S...) in your environment.`,
+        `Got a key starting with "${firstChar}" — this looks like a ${hint}. ` +
+        `Please set a valid Stellar secret key (S...) in your environment.`,
     };
   }
   if (!StrKey.isValidEd25519SecretSeed(trimmed)) {
     return { ok: false, reason: 'STELLAR_AGENT_SECRET is not a valid Stellar secret key (failed StrKey validation).' };
   }
-  return { ok: true };
+  return { ok: true as const };
 }
 
 export async function POST(req: NextRequest) {
@@ -70,8 +72,9 @@ export async function POST(req: NextRequest) {
 
   const faucetSecret = process.env.STELLAR_AGENT_SECRET?.trim() ?? '';
   const secretCheck = validateFaucetSecret(faucetSecret);
-  if (!secretCheck.ok) {
-    return NextResponse.json({ error: `Faucet not configured: ${(secretCheck as { ok: false; reason: string }).reason}` }, { status: 503 });
+  if (secretCheck.ok === false) {
+    // TypeScript narrows to { ok: false; reason: string } after the !secretCheck.ok check
+    return NextResponse.json({ error: `Faucet not configured: ${secretCheck.reason}` }, { status: 503 });
   }
 
   // Check & update claims in Supabase
