@@ -7,6 +7,9 @@ AgentForge is solving Automation On-chain. An Agentic AI Infrastructure where us
 
 https://www.loom.com/share/f4e989d847ca4beb9b104e4a5d4c8ae4
 
+<img width="1497" height="1006" alt="Screenshot 2026-04-23 044825" src="https://github.com/user-attachments/assets/37f932cb-8fc0-4b77-887c-81311416ccbf" />
+
+
 5+ active users with their Name, Wallet ID, email and Feedback:
 https://docs.google.com/spreadsheets/d/1vLztvp1yzuMoxyTsJxFebRteebIhMIdvP6aaxCJ9CrQ/edit?usp=drivesdk
 
