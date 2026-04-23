@@ -102,7 +102,7 @@ export default function FaucetPage() {
     }
 
     const horizonServer = new StellarSdk.Horizon.Server(HORIZON_URL);
-    const rpcServer = new StellarSdk.SorobanRpc.Server(SOROBAN_RPC_URL, { allowHttp: true });
+    const rpcServer = new StellarSdk.rpc.Server(SOROBAN_RPC_URL, { allowHttp: true });
     const account = await horizonServer.loadAccount(recipient);
 
     const claimTx = new StellarSdk.TransactionBuilder(account, {
