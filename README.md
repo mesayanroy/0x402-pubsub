@@ -5,6 +5,8 @@ Where user can Ideate , build , own , monitize web3 agents via deploying agent O
 
 AgentForge is solving Automation On-chain. An Agentic AI Infrastructure where user can ideate, build, own , monitize via deploying agent Onchain . Become the Righter owner of your agents credibility & ownership , Monetization . Along with Developers toolkit to build and use thier agents in thier own dapp/project with better deployment environment locally with CLI and executing AI agents with verifiable payment rails on Stellar.
 
+https://www.loom.com/share/f4e989d847ca4beb9b104e4a5d4c8ae4
+
 5+ active users with their Name, Wallet ID, email and Feedback:
 https://docs.google.com/spreadsheets/d/1vLztvp1yzuMoxyTsJxFebRteebIhMIdvP6aaxCJ9CrQ/edit?usp=drivesdk
 
